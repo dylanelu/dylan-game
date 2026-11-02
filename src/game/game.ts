@@ -55,6 +55,7 @@ export class Game {
   deadT = 0;
   kills = 0;
   renderDt = 1 / 60;
+  paused = false;
   private timers: { t: number; fn: () => void }[] = [];
 
   /** Schedule on game time, so hitstop and slow-mo stretch it like everything else. */
@@ -150,7 +151,7 @@ export class Game {
     const p = this.player;
     if (p.state === 'dead') return 'ignored';
     if (p.iframes > 0) {
-      if (o.kind !== 'bullet') this.fx.text(p.x, p.y - 70, 'DODGE', '#9ad0ff', 1, 0.5);
+      if (o.kind !== 'bullet') this.fx.text(p.x, p.y - Player.HEAD - 12, 'DODGE', '#9ad0ff', 1, 0.5);
       return 'dodged';
     }
     if (p.invuln > 0) return 'ignored';
@@ -162,7 +163,7 @@ export class Game {
       this.damagePlayer(Math.round(dmg * (o.heavy ? 0.5 : 0.25)), src, true);
       this.sfx('guard', p.x); this.shake(0.15); this.hitstop(0.04);
       this.fx.burst(fx, fy, 6, { speed: 120, color: '#c8b8e8', glow: true, life: 0.2, grav: 0 });
-      this.fx.text(p.x, p.y - 70, 'GUARD', '#a89cc8', 1, 0.5);
+      this.fx.text(p.x, p.y - Player.HEAD - 12, 'GUARD', '#a89cc8', 1, 0.5);
       p.setState('normal');
       return 'guarded';
     }
@@ -182,8 +183,8 @@ export class Game {
     if (p.state === 'parry' || p.state === 'recover') p.setState('normal');
     this.sfx('hurt', p.x); this.audio.muffleFor(0.25, 1400);
     this.hitstop(0.08); this.shake(0.5); this.chroma(1.2); this.flash('#ff1133', 0.22);
-    this.fx.burst(p.x, p.y - 30, 14, { speed: 150, colors: ['#8e1b2e', '#5a0f1e'], size: 2, life: 0.6, decal: '#2a0610' });
-    this.fx.text(p.x, p.y - 70, `-${dmg}`, '#ff4a6a', 1, 0.7);
+    this.fx.burst(p.x, p.y - Player.CHEST, 14, { speed: 150, colors: ['#8e1b2e', '#5a0f1e'], size: 2, life: 0.6, decal: '#2a0610' });
+    this.fx.text(p.x, p.y - Player.HEAD - 12, `-${dmg}`, '#ff4a6a', 1, 0.7);
     if (p.hp <= 0) {
       p.hp = 0; p.setState('dead'); this.deadT = 0;
       this.slowmo(1.2, 0.25); this.banner('DEFEATED', '#ff3355', 3);
@@ -194,7 +195,7 @@ export class Game {
   private perfectParry(x: number, y: number, kind: string, heavy = false) {
     const p = this.player;
     p.parryFlash = 0.12;
-    p.parryAngle = Math.atan2(y - (p.y - 30), x - p.x);
+    p.parryAngle = Math.atan2(y - (p.y - Player.CHEST), x - p.x);
     p.setState('normal');
     p.mana = Math.min(p.maxMana, p.mana + 35);
     p.empowered = Math.min(6, p.empowered + 3);
@@ -209,7 +210,7 @@ export class Game {
     this.fx.burst(x, y, 22, { speed: 260, colors: ['#ffffff', '#e8dcff', '#ffd84a'], glow: true, life: 0.3, grav: 0, drag: 6, size: 1 });
     this.fx.light(x, y, 140, '#e8dcff', 1);
     const word = heavy ? 'DEFLECT' : 'PERFECT';
-    this.fx.text(p.x, p.y - 74, this.combo > 1 ? `${word} x${this.combo}` : word, heavy ? '#ffd84a' : '#ffffff', heavy ? 2 : 1, 0.8);
+    this.fx.text(p.x, p.y - Player.HEAD - 16, this.combo > 1 ? `${word} x${this.combo}` : word, heavy ? '#ffd84a' : '#ffffff', heavy ? 2 : 1, 0.8);
   }
 
   /** Perfect parry on a normal enemy: stagger it and counter-strike instantly. */
@@ -263,7 +264,16 @@ export class Game {
 
   // ------------------------------------------------------------------ update
 
+  setPaused(p: boolean) {
+    if (this.paused === p || (p && this.player.state === 'dead')) return;
+    this.paused = p;
+    this.audio.setPaused(p);
+    this.input.events.length = 0;     // nothing pressed while paused fires on resume
+    this.input.firing = false;
+  }
+
   update(dt: number) {
+    if (this.paused) { this.post.desat += (0.55 - this.post.desat) * Math.min(1, dt * 8); return; }
     this.time += dt;
     const p = this.player;
 
@@ -303,7 +313,7 @@ export class Game {
       // after the fall, the body burns away into shadow
       if (this.deadT > 1.1 && !p.dissolved) {
         p.dissolved = true;
-        this.fx.dissolve(p.frame.img, p.x, p.y, 56, 76, p.face < 0, { every: 1 });
+        if (p.sprite) this.fx.dissolve(p.sprite.img, p.x, p.y, p.sprite.ax, p.sprite.ay, p.face < 0, { every: 1 });
         this.sfx('arise', p.x, 0.6);
       }
       if (this.deadT > 3.2) this.respawn();
@@ -339,7 +349,7 @@ export class Game {
       const w = Math.max(0, Math.min(0.45, (bd - 40) / 400));
       lx = lx * 0.5 + bx * w; ly = ly * 0.5 + by * w;
     }
-    const tx = p.x + lx - this.r.w / 2, ty = p.y - 26 + ly - this.r.h / 2;
+    const tx = p.x + lx - this.r.w / 2, ty = p.y - Player.CHEST + ly - this.r.h / 2;
     const k = 1 - Math.exp(-dt * 7);
     this.cam.x += (tx - this.cam.x) * k; this.cam.y += (ty - this.cam.y) * k;
     const L = this.level;
@@ -352,13 +362,13 @@ export class Game {
 
   private aimAssist() {
     const p = this.player;
-    const base = Math.atan2(p.aimY - (p.y - 30), p.aimX - p.x);
+    const base = Math.atan2(p.aimY - (p.y - Player.CHEST), p.aimX - p.x);
     let best: Enemy | null = null, bestScore = 0.3;
     for (const e of this.enemies) {
       if (e.ally || e.state === 'spawn') continue;
       const d = Math.hypot(e.x - p.x, e.y - p.y);
       if (d > 320) continue;
-      let da = Math.abs(Math.atan2(e.y - 16 - (p.y - 30), e.x - p.x) - base);
+      let da = Math.abs(Math.atan2(e.y - 16 - (p.y - Player.CHEST), e.x - p.x) - base);
       if (da > Math.PI) da = Math.PI * 2 - da;
       if (da < bestScore) { bestScore = da; best = e; }
     }
@@ -400,7 +410,7 @@ export class Game {
       }
       if (b.team === 'enemy') {
         // bullets fly at chest height (y - 0); the player's hurt circle sits around the torso
-        const d = Math.hypot(b.x - p.x, b.y - (p.y - 26));
+        const d = Math.hypot(b.x - p.x, b.y - (p.y - Player.CHEST));
         if (d < b.r + p.r + 3) {
           const res = this.hitPlayer(b, b.dmg, { heavy: b.heavy, kind: 'bullet' });
           if (res === 'parried') this.reflect(b);
@@ -509,8 +519,8 @@ export class Game {
       li.globalAlpha = a; li.drawImage(lightSprite(color), Math.round(x - r - cx), Math.round(y - r - cy), r * 2, r * 2);
     };
     for (const l of this.level.lights) L(l.x, l.y, l.radius * (1 + Math.sin(this.time * 9 + l.x) * l.flicker * 0.3), l.color, 0.9);
-    L(p.x, p.y - 26, 140, '#7a6aa0', 0.75);
-    L(p.x, p.y - 26, 56, '#d8d0f0', 0.35);
+    L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.75);
+    L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.18);
     for (const e of this.enemies) if (e.state !== 'spawn') L(e.x, e.y - 8, e.boss ? 60 : 30, e.ally ? '#7a3cff' : '#ff3355', 0.22);
     for (const b of this.bullets) L(b.x, b.y, b.team === 'player' ? 22 : 18, b.team === 'player' ? '#9a5cff' : '#ff3355', 0.55);
     for (const l of this.fx.lights) L(l.x, l.y, l.r, l.color, l.a);
@@ -570,7 +580,7 @@ export class Game {
     g.strokeStyle = '#00ff88'; g.lineWidth = 1;
     const c = (x: number, y: number, r: number) => { g.beginPath(); g.arc(Math.round(x - cx), Math.round(y - cy), r, 0, Math.PI * 2); g.stroke(); };
     const p = this.player;
-    c(p.x, p.y, p.r); c(p.x, p.y - 26, p.r);
+    c(p.x, p.y, p.r); c(p.x, p.y - Player.CHEST, p.r);
     for (const e of this.enemies) c(e.x, e.y, e.r);
     g.strokeStyle = '#ff8800';
     for (const b of this.bullets) c(b.x, b.y, b.r);

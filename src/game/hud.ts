@@ -61,6 +61,16 @@ export function drawHud(g: Game, ctx: CanvasRenderingContext2D) {
     ctx.globalAlpha = 1;
   }
 
+  // pause overlay
+  if (g.paused) {
+    ctx.fillStyle = 'rgba(7,6,12,0.55)'; ctx.fillRect(0, 0, W, H);
+    const sc = W > 420 ? 4 : 3;
+    drawText(ctx, 'PAUSED', (W - textWidth('PAUSED', sc)) / 2, Math.round(H * 0.4), '#e8dcff', sc);
+    const hint = g.input.device === 'touch' ? 'TAP II TO RESUME' : 'ESC TO RESUME';
+    drawText(ctx, hint, (W - textWidth(hint)) / 2, Math.round(H * 0.4) + 6 * sc + 6, '#8a7ab8');
+    return;
+  }
+
   // touch joystick
   const j = g.input.joy;
   if (j) {

@@ -49,6 +49,8 @@ export class Audio {
   private amb!: GainNode;
   private reverb!: GainNode;
   private muffle!: BiquadFilterNode;
+  private master!: GainNode;
+  private paused = false;
   private buffers = new Map<string, AudioBuffer>();
   private manifest: Manifest | null = null;
   private lastPlay = new Map<string, number>();
@@ -67,6 +69,7 @@ export class Audio {
     limiter.threshold.value = -10; limiter.knee.value = 6; limiter.ratio.value = 12;
     limiter.attack.value = 0.002; limiter.release.value = 0.12;
     const master = ctx.createGain(); master.gain.value = 0.9;
+    this.master = master;
     this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.7;
     this.muffle.connect(limiter).connect(master).connect(ctx.destination);
     this.sfx = ctx.createGain(); this.sfx.gain.value = 0.9; this.sfx.connect(this.muffle);
@@ -185,9 +188,25 @@ export class Audio {
 
   private synth(_name: string) { /* unknown event: silent by design */ }
 
+  /** Pause: drop everything to a muffled murmur (not silence, so the room still feels alive). */
+  setPaused(p: boolean) {
+    this.paused = p;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, g = this.master.gain, f = this.muffle.frequency;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(p ? 0.12 : 0.9, t + 0.25);
+    f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(p ? 450 : 20000, t + 0.25);
+  }
+
+  /** Background tab or hidden pane: stop the audio clock entirely. */
+  setHidden(hidden: boolean) {
+    if (!this.ctx) return;
+    if (hidden) void this.ctx.suspend();
+    else void this.ctx.resume();
+  }
+
   /** Close the high end for a moment: the world "drops out" on a perfect parry or a big hit. */
   muffleFor(sec: number, freq = 700) {
-    if (!this.ctx) return;
+    if (!this.ctx || this.paused) return;
     const f = this.muffle.frequency, t = this.ctx.currentTime;
     f.cancelScheduledValues(t);
     f.setValueAtTime(freq, t);

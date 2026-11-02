@@ -19,6 +19,7 @@ const panel = document.getElementById('panel')!;
 const sync = () => {
   panel.querySelector('[data-act="god"]')!.classList.toggle('on', game.god);
   panel.querySelector('[data-act="hitbox"]')!.classList.toggle('on', game.showHitbox);
+  panel.querySelector('[data-act="pause"]')!.classList.toggle('on', game.paused);
 };
 panel.addEventListener('pointerdown', (e) => e.stopPropagation());
 panel.addEventListener('click', (e) => {
@@ -26,10 +27,19 @@ panel.addEventListener('click', (e) => {
   if (!act) return;
   audio.unlock();
   if (act === 'toggle') panel.classList.toggle('collapsed');
+  else if (act === 'pause') game.setPaused(!game.paused);
   else game.sandbox(act);
   sync();
 });
-addEventListener('keydown', () => setTimeout(sync));
+addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' || e.code === 'KeyP') game.setPaused(!game.paused);
+  setTimeout(sync);
+});
+// hidden tab or pane: pause and silence it, so a game you can't see never keeps playing
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) game.setPaused(true);
+  audio.setHidden(document.hidden);
+});
 if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || innerWidth < 700) panel.classList.add('collapsed');
 
 // Simulate exactly the time that passed since the last display frame, in substeps of at most 1/120 s.

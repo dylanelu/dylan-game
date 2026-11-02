@@ -19,6 +19,7 @@ npm run build      # static output in dist/, deployable to GitHub Pages
 | Parry | release that thumb | right click (or K) |
 | Shoot | tap or hold anywhere else | left click toward the cursor |
 | Roll | flick with a second finger | Space / Shift |
+| Pause | II button | Esc / P |
 
 Perfect parry (first 0.15s): staggers normal enemies with a counter-strike, reflects bullets, refills mana and
 charges empowered shots. Enemies killed by a counter-strike rise as shadow soldiers. Every attack can be
@@ -29,8 +30,8 @@ Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` 
 
 ## Code map
 
-- `dev/rig.html`: hero animation viewer (`npm run dev`, then open `/dev/rig.html`; add `?sheet` for a contact sheet)
-- `src/game/hero.ts`: cut-out rig; poses per part baked into frames at load (idle, run, roll, parry, riposte, hit, death, skid)
+- `dev/rig.html`: hero frame viewer (`npm run dev`, then open `/dev/rig.html`)
+- `src/game/assets.ts`: the hero is 0x72's elf recolored and hand-edited into Dylan (`dylanize`), plus a shadow dagger
 
 - `src/engine/renderer.ts`: low-res Canvas2D layers (scene, light, glow, ui) composited by a WebGL2 post shader
   (banded lighting, bloom, chromatic aberration, flashes, vignette, grain)
