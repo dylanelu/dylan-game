@@ -219,6 +219,8 @@ export class Night {
       activeMb: [...this.activeMb], bossSpawned: this.bossSpawned, revives: this.revives, said: [...this.said],
       chests: this.chests.filter((c) => !c.opened).map(({ id, x, y }) => ({ id, x, y })),
       drops: this.drops.map((d) => ({ x: Math.round(d.x), y: Math.round(d.y), item: d.item })),
+      bosses: [...this.camps.values()].filter((c) => c.room.pool).map((c) => [c.room.id, c.boss!] as [number, string]),
+      finalBoss: this.finalBoss,
     };
   }
 
@@ -227,6 +229,8 @@ export class Night {
     this.t = s.t; this.revives = s.revives; this.said = new Set(s.said);
     this.activeMb = new Set(s.activeMb);
     for (const id of s.cleared) { const c = this.camps.get(id); if (c) c.state = 'cleared'; }
+    for (const [id, k] of s.bosses ?? []) { const c = this.camps.get(id); if (c) c.boss = k as EnemyKind; }
+    if (s.finalBoss) this.finalBoss = s.finalBoss as EnemyKind;
     this.chests = s.chests.map((c) => ({ ...c, opened: false, t: 0 }));
     this.drops = s.drops.map((d) => ({ ...d, z: 0, vz: 0, vx: 0, vy: 0, t: 1 }));
     this.g.nextId = Math.max(this.g.nextId, ...s.chests.map((c) => c.id));

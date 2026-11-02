@@ -18,6 +18,7 @@ export interface NightSave {
   t: number; cleared: number[]; activeMb: number[]; bossSpawned: boolean; revives: number; said: string[];
   chests: { id: number; x: number; y: number }[];
   drops: { x: number; y: number; item: Item }[];
+  bosses?: [number, string][]; finalBoss?: string;
 }
 interface Save { at: number; player: PlayerSave; night: NightSave | null }
 
