@@ -1,11 +1,14 @@
 // Loads the hero sprite and the 0x72 dungeon sheet (CC0) and pre-bakes the variants
 // the game needs: integer-scaled frames, white hit-flash frames, shadow-tinted frames.
 
+import { HeroRig } from './hero';
+
 export type Sprite = HTMLCanvasElement;
 export interface Anim { normal: Sprite[]; flash: Sprite[]; shadow: Sprite[]; w: number; h: number }
 
 export interface Assets {
   hero: Sprite; heroFlash: Sprite; heroShadow: Sprite;
+  rig: HeroRig;
   tile(name: string, frame?: number): Sprite;   // 2x scaled
   anim(name: string, scale?: number): Anim;
 }
@@ -48,8 +51,8 @@ function grade(img: HTMLImageElement): Sprite {
   return c;
 }
 
-export async function loadAssets(): Promise<Assets> {
-  const [heroImg, sheetImg, list] = await Promise.all([load('assets/hero.png'), load(SHEET), fetch(LIST).then((r) => r.text())]);
+export async function loadAssets(base = ''): Promise<Assets> {
+  const [heroImg, sheetImg, list] = await Promise.all([load(base + 'assets/hero.png'), load(base + SHEET), fetch(base + LIST).then((r) => r.text())]);
   const sheet = grade(sheetImg);
   const defs = new Map<string, { x: number; y: number; w: number; h: number; n: number }>();
   for (const line of list.split('\n')) {
@@ -71,6 +74,7 @@ export async function loadAssets(): Promise<Assets> {
   const animCache = new Map<string, Anim>();
   return {
     hero,
+    rig: new HeroRig(hero),
     heroFlash: tinted(hero, '#ffffff'),
     heroShadow: tinted(hero, '#5a2ccf', 0.85),
     tile(name, frame = 0) {

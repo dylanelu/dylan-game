@@ -9,7 +9,7 @@ export interface Particle {
 interface Ring { x: number; y: number; r0: number; r1: number; t: number; dur: number; color: string; width: number }
 interface Glint { x: number; y: number; t: number; dur: number; color: string; size: number }
 interface FloatText { x: number; y: number; text: string; color: string; t: number; dur: number; scale: number; vy: number }
-interface After { img: Sprite; x: number; y: number; flip: boolean; t: number; dur: number; w: number; h: number }
+interface After { img: Sprite; x: number; y: number; flip: boolean; t: number; dur: number; ax: number; ay: number }
 export interface Light { x: number; y: number; r: number; color: string; a: number }
 export interface Telegraph { x: number; y: number; r: number; t: number; dur: number; color: string; angle?: number; arc?: number; len?: number; width?: number }
 
@@ -46,8 +46,27 @@ export class Fx {
   text(x: number, y: number, text: string, color: string, scale = 1, dur = 0.7, vy = -28) {
     this.texts.push({ x, y, text, color, t: 0, dur, scale, vy });
   }
-  after(img: Sprite, x: number, y: number, flip: boolean, w: number, h: number, dur = 0.25) {
-    this.afters.push({ img, x, y, flip, t: 0, dur, w, h });
+  /** Fading ghost of a sprite; (ax, ay) is the sprite's feet anchor inside `img`. */
+  after(img: Sprite, x: number, y: number, flip: boolean, ax: number, ay: number, dur = 0.25) {
+    this.afters.push({ img, x, y, flip, t: 0, dur, ax, ay });
+  }
+
+  /** Break a sprite into its own pixels: they lift off and burn out as shadow embers. */
+  dissolve(img: Sprite, x: number, y: number, ax: number, ay: number, flip: boolean, o: { every?: number; tint?: string; up?: number } = {}) {
+    const ctx = img.getContext('2d')!, d = ctx.getImageData(0, 0, img.width, img.height).data;
+    const every = o.every ?? 2, up = o.up ?? 60;
+    for (let py = 0; py < img.height; py += 1) for (let px = (py % every); px < img.width; px += every) {
+      const i = (py * img.width + px) * 4;
+      if (d[i + 3] < 128) continue;
+      const lx = (px - ax) * (flip ? -1 : 1), ly = py - ay;
+      const life = 0.5 + Math.random() * 0.9 + (-ly / 60) * 0.3;
+      const color = Math.random() < 0.35 ? (o.tint ?? '#7a3cff') : `rgb(${d[i]},${d[i + 1]},${d[i + 2]})`;
+      this.parts.push({
+        x: x + lx, y: y, z: -ly, vx: (Math.random() - 0.5) * 30 + lx * 0.8, vy: (Math.random() - 0.5) * 10,
+        vz: up * (0.4 + Math.random()) + (-ly) * 0.3, life, max: life, color, size: 1, glow: color === (o.tint ?? '#7a3cff'),
+        drag: 2.2, grav: -40 - Math.random() * 60,
+      });
+    }
   }
   light(x: number, y: number, r: number, color: string, a = 1) { this.lights.push({ x, y, r, color, a }); }
 
@@ -119,11 +138,11 @@ export class Fx {
   drawGlow(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
     for (const a of this.afters) {
       const k = 1 - a.t / a.dur;
-      ctx.globalAlpha = 0.55 * k;
+      ctx.globalAlpha = 0.3 * k * k;   // glow layer blooms, so keep ghosts faint
       ctx.save();
       ctx.translate(Math.round(a.x - cx), Math.round(a.y - cy));
       if (a.flip) ctx.scale(-1, 1);
-      ctx.drawImage(a.img, -Math.floor(a.w / 2), -a.h, a.w, a.h);
+      ctx.drawImage(a.img, -a.ax, -a.ay);
       ctx.restore();
     }
     ctx.globalAlpha = 1;

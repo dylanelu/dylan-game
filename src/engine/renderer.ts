@@ -4,6 +4,9 @@
 //   light  - ambient + additive light sprites
 //   glow   - emissive stuff (bullets, sparks, rings). Added on top and bloomed.
 //   ui     - HUD, never lit or bloomed
+//
+// World layers carry a 1px margin. The camera renders on whole pixels and the shader slides the result
+// by the camera's fractional position, so scrolling is smooth while every sprite stays pixel-crisp.
 
 export interface Layer { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }
 
@@ -16,6 +19,8 @@ export interface PostParams {
   vignette: number;
   grain: number;
   desat: number;       // 0..1, used on death
+  fracX: number;       // camera sub-pixel offset, 0..1 native px
+  fracY: number;
 }
 
 const VERT = `#version 300 es
@@ -26,7 +31,7 @@ const FRAG = `#version 300 es
 precision mediump float;
 in vec2 vUv; out vec4 outColor;
 uniform sampler2D uScene, uLight, uGlow, uGlowSoft, uUi;
-uniform vec2 uTexel, uRes;
+uniform vec2 uTexel, uRes, uView, uFrac;
 uniform float uTime, uChroma, uFlash, uZoom, uLowHp, uVignette, uGrain, uDesat;
 uniform vec3 uFlashColor;
 
@@ -38,8 +43,9 @@ vec3 lit(vec2 uv) {
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
 void main() {
-  vec2 uv = (vUv - 0.5) / uZoom + 0.5;
-  vec2 d = uv - 0.5;
+  vec2 suv = (vUv - 0.5) / uZoom + 0.5;
+  vec2 uv = (suv * uView + 1.0 + uFrac) / (uView + 2.0);   // into the margined world layers
+  vec2 d = suv - 0.5;
   vec2 ca = d * uChroma * 0.012;
   vec3 col = vec3(lit(uv + ca).r, lit(uv).g, lit(uv - ca).b);
   vec4 gl0 = texture(uGlow, uv);
@@ -109,7 +115,7 @@ export class Renderer {
     this.nearest = this.sampler(gl.NEAREST);
     this.linear = this.sampler(gl.LINEAR);
     for (const n of ['uScene', 'uLight', 'uGlow', 'uGlowSoft', 'uUi', 'uTexel', 'uRes', 'uTime', 'uChroma', 'uFlash',
-      'uZoom', 'uLowHp', 'uVignette', 'uGrain', 'uDesat', 'uFlashColor']) this.loc[n] = gl.getUniformLocation(this.prog, n);
+      'uZoom', 'uLowHp', 'uVignette', 'uGrain', 'uDesat', 'uFlashColor', 'uView', 'uFrac']) this.loc[n] = gl.getUniformLocation(this.prog, n);
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -142,6 +148,8 @@ export class Renderer {
   /** Pick an integer scale so the short side lands near 360 native pixels. */
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    // a hidden or collapsed pane can report 0×0; keep the last good size instead of zero-sized layers
+    if (innerWidth < 2 || innerHeight < 2) return;
     const dw = Math.round(innerWidth * this.dpr), dh = Math.round(innerHeight * this.dpr);
     this.scale = Math.max(1, Math.round(Math.min(dw, dh) / 360));
     this.w = Math.ceil(dw / this.scale);
@@ -150,10 +158,12 @@ export class Renderer {
     this.canvas.height = this.h * this.scale;
     this.canvas.style.width = `${this.canvas.width / this.dpr}px`;
     this.canvas.style.height = `${this.canvas.height / this.dpr}px`;
-    for (const l of [this.scene, this.light, this.glow, this.ui]) {
-      l.canvas.width = this.w; l.canvas.height = this.h;
+    for (const l of [this.scene, this.light, this.glow]) {
+      l.canvas.width = this.w + 2; l.canvas.height = this.h + 2;
       l.ctx.imageSmoothingEnabled = false;
     }
+    this.ui.canvas.width = this.w; this.ui.canvas.height = this.h;
+    this.ui.ctx.imageSmoothingEnabled = false;
   }
 
   clientToNative(cx: number, cy: number) {
@@ -179,7 +189,9 @@ export class Renderer {
     const L = this.loc;
     gl.uniform1i(L.uScene, 0); gl.uniform1i(L.uLight, 1); gl.uniform1i(L.uGlow, 2);
     gl.uniform1i(L.uGlowSoft, 3); gl.uniform1i(L.uUi, 4);
-    gl.uniform2f(L.uTexel, 1 / this.w, 1 / this.h);
+    gl.uniform2f(L.uTexel, 1 / (this.w + 2), 1 / (this.h + 2));
+    gl.uniform2f(L.uView, this.w, this.h);
+    gl.uniform2f(L.uFrac, p.fracX, p.fracY);
     gl.uniform2f(L.uRes, this.w, this.h);
     gl.uniform1f(L.uTime, time);
     gl.uniform1f(L.uChroma, p.chroma);

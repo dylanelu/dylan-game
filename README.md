@@ -28,6 +28,9 @@ Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` 
 
 ## Code map
 
+- `dev/rig.html`: hero animation viewer (`npm run dev`, then open `/dev/rig.html`; add `?sheet` for a contact sheet)
+- `src/game/hero.ts`: cut-out rig; poses per part baked into frames at load (idle, run, roll, parry, riposte, hit, death, skid)
+
 - `src/engine/renderer.ts`: low-res Canvas2D layers (scene, light, glow, ui) composited by a WebGL2 post shader
   (banded lighting, bloom, chromatic aberration, flashes, vignette, grain)
 - `src/engine/input.ts`: touch gestures and mouse/keyboard, both mapped to the same actions

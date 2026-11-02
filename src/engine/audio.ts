@@ -137,7 +137,7 @@ export class Audio {
       const [p0, p1] = L.pitch ?? [0.95, 1.05];
       src.playbackRate.value = (p0 + Math.random() * (p1 - p0)) * (o.pitch ?? 1);
       const g = ctx.createGain(); g.gain.value = L.vol * vol * (0.9 + Math.random() * 0.2);
-      const pan = ctx.createStereoPanner(); pan.pan.value = Math.max(-1, Math.min(1, (o.pan ?? 0) * 0.7));
+      const pan = ctx.createStereoPanner(); pan.pan.value = Number.isFinite(o.pan) ? Math.max(-1, Math.min(1, o.pan! * 0.7)) : 0;
       src.connect(g).connect(pan).connect(this.sfx);
       if (L.rev) { const s = ctx.createGain(); s.gain.value = L.rev; pan.connect(s).connect(this.reverb); }
       else { const s = ctx.createGain(); s.gain.value = 0.25; pan.connect(s).connect(this.reverb); }

@@ -30,7 +30,46 @@ export class Boss extends Enemy {
     this.boss = true;
     this.hp = this.maxHp = 1500;
     this.r = 20; this.heavy = 40; this.spawnTime = 1.2; this.stunTime = 3.2; this.jitter = 1.5;
-    this.animFps = 6;
+    this.animFps = 6; this.baseSpeed = 46;
+    this.leanScale = 0.45;
+  }
+
+  onStep(g: Game) {
+    this.punch(1.8);
+    g.sfx('bossStep', this.x);
+    g.shake(0.07);
+    g.fx.burst(this.x + (Math.random() - 0.5) * 20, this.y, 4, { speed: 40, color: '#3a3352', size: 2, life: 0.4, z: 0, vz: 16, grav: 60 });
+  }
+
+  poseSquash() {
+    const t = this.stateT;
+    switch (this.state) {
+      case 'intro': case 'enrage': return -0.12 * Math.min(1, t * 4) + Math.sin(t * 40) * 0.02;   // rear up and roar
+      case 'combo': {
+        const wind = (this.step === 0 ? 0.6 : 0.38) / this.speedMul;
+        return t < wind ? -0.1 * Math.min(1, t / wind) : 0.14 * Math.max(0, 1 - (t - wind) * 5);
+      }
+      case 'burst': case 'spiral': return -0.05 + Math.sin(t * 22) * 0.03;
+      case 'leap': return this.z > 0 ? -0.18 : 0.2 * Math.min(1, t / 0.4);                          // crouch, then stretch in the air
+      case 'charge': return t < 0.6 ? 0.12 * Math.min(1, t / 0.4) : -0.1;
+      case 'recover': return 0.06 * Math.max(0, 1 - t * 2);
+      case 'stunned': return 0.22 + Math.sin(t * 6) * 0.03;                                            // kneel, panting
+      default: return Math.sin(this.t * 2.4) * 0.025;
+    }
+  }
+
+  // the boss is ~3x taller than other enemies, so shear is scaled down to keep the lean believable
+  poseLean() {
+    const t = this.stateT;
+    switch (this.state) {
+      case 'combo': {
+        const wind = (this.step === 0 ? 0.6 : 0.38) / this.speedMul;
+        return t < wind ? -this.face * 0.12 * Math.min(1, t / wind) : this.face * 0.16 * Math.max(0, 1 - (t - wind) * 4);
+      }
+      case 'charge': return t < 0.6 ? -this.face * 0.1 : this.face * 0.2;
+      case 'stunned': return Math.sin(t * 3) * 0.06;
+      default: return 0;
+    }
   }
 
   get speedMul() { return this.phase === 2 ? 1.3 : 1; }
@@ -143,6 +182,7 @@ export class Boss extends Enemy {
             } else {
               this.vx = this.fromX * 300 * S; this.vy = this.fromY * 300 * S;
               g.sfx('swing', this.x);
+              this.punch(2.5);
             }
           }
           if (!isRed && !this.swingResolved && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 30) {
@@ -216,6 +256,7 @@ export class Boss extends Enemy {
         } else if (this.z > 0 || !this.hitThisAttack) {
           this.z = 0; this.hitThisAttack = true;
           g.sfx('slam', this.x); g.shake(0.85); g.chroma(0.8); g.hitstop(0.05);
+          this.punch(8);
           g.fx.burst(this.x, this.y, 30, { speed: 200, colors: ['#3a3155', '#5a4a7a', '#241c38'], size: 2, life: 0.8 });
           g.fx.light(this.x, this.y, 160, '#ff4422', 1);
           g.fx.splat(this.x, this.y, '#0c0818', 30, 30);
@@ -247,7 +288,7 @@ export class Boss extends Enemy {
             g.enemyBullet(this.x, this.y - 30, a + Math.PI / 2, 60, { source: this });
             g.enemyBullet(this.x, this.y - 30, a - Math.PI / 2, 60, { source: this });
           }
-          g.fx.after(this.anim.normal[0], this.x, this.y, this.face < 0, this.anim.w, this.anim.h, 0.2);
+          g.fx.after(this.anim.shadow[0], this.x, this.y, this.face < 0, this.anim.w >> 1, this.anim.h, 0.2);
           if (!this.hitThisAttack && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 10) {
             this.hitThisAttack = true;
             g.hitPlayer(this, 24, { parryable: false, kind: 'melee' });

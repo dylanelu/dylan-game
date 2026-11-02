@@ -32,14 +32,17 @@ panel.addEventListener('click', (e) => {
 addEventListener('keydown', () => setTimeout(sync));
 if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || innerWidth < 700) panel.classList.add('collapsed');
 
-// fixed 120 Hz simulation, render every animation frame
-const STEP = 1 / 120;
-let last = performance.now(), acc = 0;
+// Simulate exactly the time that passed since the last display frame, in substeps of at most 1/120 s.
+// A fixed step with no interpolation judders on 144 Hz screens (alternating 0 and 1 steps per frame);
+// this stays even at any refresh rate.
+const MAX_STEP = 1 / 120;
+let last = performance.now();
 function frame(now: number) {
-  acc += Math.min(0.1, (now - last) / 1000);
+  const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
-  let n = 0;
-  while (acc >= STEP && n++ < 12) { game.update(STEP); acc -= STEP; }
+  const n = Math.max(1, Math.ceil(dt / MAX_STEP - 1e-6));
+  for (let i = 0; i < n; i++) game.update(dt / n);
+  game.renderDt = dt;
   game.render();
   requestAnimationFrame(frame);
 }

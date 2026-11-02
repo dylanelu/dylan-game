@@ -46,7 +46,7 @@ export class Game {
   kickX = 0; kickY = 0;
   private stop = 0;
   private slowT = 0; private slowScale = 1; timeScale = 1;
-  post: PostParams = { chroma: 0, flash: 0, flashColor: [1, 1, 1], zoom: 1, lowHp: 0, vignette: 0.7, grain: 0.035, desat: 0 };
+  post: PostParams = { chroma: 0, flash: 0, flashColor: [1, 1, 1], zoom: 1, lowHp: 0, vignette: 0.7, grain: 0.035, desat: 0, fracX: 0, fracY: 0 };
   god = false;
   showHitbox = false;
   combo = 0; comboT = 0;
@@ -54,6 +54,7 @@ export class Game {
   hintT = 14;
   deadT = 0;
   kills = 0;
+  renderDt = 1 / 60;
   private timers: { t: number; fn: () => void }[] = [];
 
   /** Schedule on game time, so hitstop and slow-mo stretch it like everything else. */
@@ -61,7 +62,7 @@ export class Game {
 
   /** Play a sound panned by where it happens on screen. */
   sfx(name: string, x?: number, vol = 1) {
-    const pan = x === undefined ? 0 : ((x - this.cam.x) / this.r.w - 0.5) * 2;
+    const pan = x === undefined || this.r.w < 2 ? 0 : ((x - this.cam.x) / this.r.w - 0.5) * 2;
     this.audio.play(name, { pan, vol });
   }
   private musicCalm = 0;
@@ -176,6 +177,7 @@ export class Game {
     const dx = p.x - src.x, dy = p.y - src.y, l = Math.hypot(dx, dy) || 1;
     p.vx += (dx / l) * 220; p.vy += (dy / l) * 220;
     p.invuln = 0.7; p.flash = 0.1;
+    p.play('hit');
     if (p.state === 'parry' || p.state === 'recover') p.setState('normal');
     this.sfx('hurt', p.x); this.audio.muffleFor(0.25, 1400);
     this.hitstop(0.08); this.shake(0.5); this.chroma(1.2); this.flash('#ff1133', 0.22);
@@ -211,6 +213,7 @@ export class Game {
   riposte(e: Enemy, dmg: number) {
     e.parried(this);
     const p = this.player, d = e.dirTo(p.x, p.y);
+    p.play('riposte'); p.face = Math.sign(e.x - p.x) || p.face;
     this.sfx('riposte', e.x);
     p.vx += -d.dx * 140; p.vy += -d.dy * 140;   // step into the counter
     this.later(0.07, () => {
@@ -291,7 +294,13 @@ export class Game {
     p.update(this, sdt);
     if (p.state === 'dead') {
       this.deadT += dt;
-      if (this.deadT > 3) this.respawn();
+      // after the fall, the body burns away into shadow
+      if (this.deadT > 1.1 && !p.dissolved) {
+        p.dissolved = true;
+        this.fx.dissolve(p.frame.img, p.x, p.y, 56, 76, p.face < 0, { every: 1 });
+        this.sfx('arise', p.x, 0.6);
+      }
+      if (this.deadT > 3.2) this.respawn();
     }
 
     for (const tm of this.timers) tm.t -= sdt;
@@ -455,10 +464,13 @@ export class Game {
     const tr = this.trauma * this.trauma, t = this.time;
     const sx = (Math.sin(t * 47.3) + Math.sin(t * 31.1 + 1.3)) * 0.5 * tr * 9 + this.kickX;
     const sy = (Math.sin(t * 41.7 + 2.1) + Math.sin(t * 27.9 + 0.4)) * 0.5 * tr * 9 + this.kickY;
-    const cx = Math.round(this.cam.x + sx), cy = Math.round(this.cam.y + sy);
+    // world layers are (W+2)×(H+2): draw from one pixel up-left of the integer camera, the shader adds the fraction
+    const camX = this.cam.x + sx, camY = this.cam.y + sy;
+    const cx = Math.floor(camX) - 1, cy = Math.floor(camY) - 1;
+    this.post.fracX = camX - Math.floor(camX); this.post.fracY = camY - Math.floor(camY);
 
-    s.fillStyle = '#07060c'; s.fillRect(0, 0, W, H);
-    gl.clearRect(0, 0, W, H);
+    s.fillStyle = '#07060c'; s.fillRect(0, 0, W + 2, H + 2);
+    gl.clearRect(0, 0, W + 2, H + 2);
     ui.clearRect(0, 0, W, H);
     s.drawImage(this.level.base, -cx, -cy);
     s.drawImage(this.level.decals, -cx, -cy);
@@ -470,7 +482,7 @@ export class Game {
     for (const c of this.level.columns) items.push({ y: c.y, draw: () => this.level.drawColumn(s, c, cx, cy) });
     for (const e of this.enemies) items.push({ y: e.y, draw: () => e.draw(this, s, cx, cy) });
     const p = this.player;
-    items.push({ y: p.y, draw: () => p.draw(this, s, gl, cx, cy) });
+    items.push({ y: p.y, draw: () => p.draw(this, s, gl, cx, cy, this.renderDt) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     for (const e of this.enemies) e.drawGlow(this, gl, cx, cy);
@@ -482,10 +494,10 @@ export class Game {
 
     // lighting
     li.globalCompositeOperation = 'source-over';
-    li.fillStyle = p.state === 'dead' ? '#26242e' : '#33313f'; li.fillRect(0, 0, W, H);
+    li.fillStyle = p.state === 'dead' ? '#26242e' : '#33313f'; li.fillRect(0, 0, W + 2, H + 2);
     li.globalCompositeOperation = 'lighter';
     const L = (x: number, y: number, r: number, color: string, a = 1) => {
-      if (x + r < cx || x - r > cx + W || y + r < cy || y - r > cy + H) return;
+      if (x + r < cx || x - r > cx + W + 2 || y + r < cy || y - r > cy + H + 2) return;
       li.globalAlpha = a; li.drawImage(lightSprite(color), Math.round(x - r - cx), Math.round(y - r - cy), r * 2, r * 2);
     };
     for (const l of this.level.lights) L(l.x, l.y, l.radius * (1 + Math.sin(this.time * 9 + l.x) * l.flicker * 0.3), l.color, 0.9);
@@ -498,8 +510,9 @@ export class Game {
     li.globalAlpha = 1;
 
     // world-space UI then HUD
-    this.fx.drawTexts(ui, cx, cy);
-    if (this.showHitbox) this.drawHitboxes(ui, cx, cy);
+    const ux = Math.round(camX), uy = Math.round(camY);
+    this.fx.drawTexts(ui, ux, uy);
+    if (this.showHitbox) this.drawHitboxes(ui, ux, uy);
     drawHud(this, ui);
 
     R.present(this.post, this.time);

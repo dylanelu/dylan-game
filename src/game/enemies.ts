@@ -31,15 +31,43 @@ export abstract class Enemy {
     return { dx: dx / d, dy: dy / d, d };
   }
 
+  // procedural animation state, layered on top of the 4-frame sprite cycles
+  sq = 0; sqV = 0;          // squash (+) / stretch (-), driven by a spring
+  lean = 0;                 // shear toward movement
+  animT = 0;                // run cycle time, advanced by distance travelled
+  lastFrame = -1;
+  baseSpeed = 50;           // speed at which the run cycle plays at its authored rate
+  leanScale = 1;            // big sprites shear less
+
+  /** Kick the squash spring: positive squashes, negative stretches. */
+  punch(v: number) { this.sqV += v; }
+
+  private animateBody(dt: number) {
+    // critically-damped-ish spring: snappy, one small overshoot
+    this.sqV += (-170 * this.sq - 14 * this.sqV) * dt;
+    this.sq += this.sqV * dt;
+    const speed = Math.hypot(this.vx, this.vy);
+    const target = Math.max(-0.28, Math.min(0.28, this.vx / 260)) * (this.state === 'stunned' ? 0 : 1) * this.leanScale;
+    this.lean += (target - this.lean) * Math.min(1, dt * 12);
+    this.animT += dt * Math.max(0.35, speed / this.baseSpeed);
+  }
+
   update(g: Game, dt: number) {
     this.t += dt; this.stateT += dt; this.flash -= dt;
+    this.animateBody(dt);
     if (this.state === 'spawn') {
-      if (this.stateT >= this.spawnTime) this.setState('idle');
+      if (this.stateT >= this.spawnTime) { this.setState('idle'); this.punch(-3.5); }
       return;
     }
     if (this.state === 'stunned') {
       if (this.stateT > this.stunTime) this.setState('idle');
     } else this.think(g, dt);
+    // footfalls on the run cycle's contact frames
+    if (Math.hypot(this.vx, this.vy) > 15 && this.state !== 'spawn') {
+      const fi = Math.floor(this.animT * this.animFps * 1.4) % 4;
+      if (fi !== this.lastFrame && (fi === 0 || fi === 2)) this.onStep(g);
+      this.lastFrame = fi;
+    }
     const fr = this.state === 'lunge' || this.state === 'charge' ? 1.2 : 9;
     this.vx *= Math.exp(-fr * dt); this.vy *= Math.exp(-fr * dt);
     this.x += this.vx * dt; this.y += this.vy * dt;
@@ -61,6 +89,7 @@ export abstract class Enemy {
     const amount = Math.round(dmg * (crit ? 2 : 1));
     this.hp -= amount;
     this.flash = 0.07;
+    this.punch((crit ? 4.5 : 2.6) / Math.sqrt(this.heavy));
     const kb = (opts.knock ?? 60) / this.heavy;
     this.vx += dx * kb; this.vy += dy * kb;
     g.fx.text(this.x + (Math.random() - 0.5) * 10, this.y - this.height() - 4, `${amount}`, crit ? '#ffd84a' : '#ffffff', crit ? 2 : 1, 0.6);
@@ -74,6 +103,7 @@ export abstract class Enemy {
     else this.onHurt(g, amount);
   }
   onHurt(_g: Game, _amount: number) {}
+  onStep(_g: Game) { this.punch(0.6); }
 
   /** Player perfect-parried one of our attacks. */
   parried(g: Game) {
@@ -85,6 +115,8 @@ export abstract class Enemy {
   die(g: Game, how: string) {
     this.dead = true;
     const h = this.height();
+    const f = this.currentFrame(false);
+    g.fx.dissolve(f, this.x, this.y, f.width >> 1, f.height, this.face < 0, { every: this.boss ? 1 : 2, tint: this.boss ? '#ff3355' : '#7a3cff', up: this.boss ? 90 : 60 });
     g.fx.burst(this.x, this.y - h * 0.4, 18, { speed: 160, colors: ['#5a0f1e', '#8e1b2e', '#24061a'], size: 2, life: 0.8, decal: '#2a0610' });
     g.fx.burst(this.x, this.y - h * 0.5, 14, { speed: 50, colors: ['#7a3cff', '#b26bff', '#3a1a80'], glow: true, life: 1.1, grav: -60, vz: 30, size: 2, drag: 1.5 });
     g.fx.splat(this.x, this.y, '#1e0410', 14, 9);
@@ -96,28 +128,55 @@ export abstract class Enemy {
 
   height() { return this.anim.h; }
 
+  /** Moving states use the run cycle (paced by distance); planted states use the idle cycle. */
+  currentFrame(variants = true): HTMLCanvasElement {
+    const planted = this.state === 'idle' && Math.hypot(this.vx, this.vy) < 12 || this.state === 'windup' || this.state === 'cast' || this.state === 'stunned' || this.state === 'spawn';
+    const a = planted ? (this.idleAnim ?? this.anim) : this.anim;
+    const frames = !variants ? a.normal : this.ally ? a.shadow : this.flash > 0 ? a.flash : a.normal;
+    const i = planted ? Math.floor(this.t * this.animFps) : Math.floor(this.animT * this.animFps * 1.4);
+    return frames[i % frames.length];
+  }
+
+  /** Extra pose on top of the spring: anticipation stretch, attack squash, stagger wobble. */
+  poseSquash() {
+    switch (this.state) {
+      case 'windup': case 'cast': return -0.1 * Math.min(1, this.stateT / 0.3);
+      case 'lunge': case 'charge': return 0.12;
+      case 'stunned': return 0.08 + Math.sin(this.stateT * 18) * 0.04;
+      case 'recover': return 0.05 * Math.max(0, 1 - this.stateT * 3);
+      default: return Math.sin(this.t * 3.1 + this.x) * 0.02;   // breathing
+    }
+  }
+  poseLean() {
+    if (this.state === 'windup' || this.state === 'cast') return -this.face * 0.18 * Math.min(1, this.stateT / 0.3);   // rear back
+    if (this.state === 'lunge' || this.state === 'charge') return this.face * 0.3;
+    if (this.state === 'stunned') return Math.sin(this.stateT * 9) * 0.2;
+    return 0;
+  }
+
   draw(g: Game, ctx: CanvasRenderingContext2D, cx: number, cy: number) {
-    const a = this.state === 'idle' || this.state === 'windup' || this.state === 'cast' || this.state === 'stunned' ? (this.idleAnim ?? this.anim) : this.anim;
-    const frames = this.ally ? a.shadow : this.flash > 0 ? a.flash : a.normal;
-    const f = frames[Math.floor(this.t * this.animFps) % frames.length];
-    let x = Math.round(this.x - cx), y = Math.round(this.y - cy);
+    const a = this.anim, f = this.currentFrame();
+    let x = Math.round(this.x - cx); const y = Math.round(this.y - cy);
     if (this.state === 'windup' || this.state === 'cast') x += Math.round(Math.sin(this.stateT * 70) * this.jitter);
     ctx.fillStyle = 'rgba(4,2,10,0.5)';
-    const sw = Math.round(a.w * 0.55);
+    const sw = Math.round(a.w * 0.55 * (1 + Math.max(0, this.sq)));
     ctx.fillRect(x - (sw >> 1), y - 1, sw, 3);
     ctx.save();
     ctx.translate(x, y);
+    const lean = this.lean + this.poseLean();
+    if (Math.abs(lean) > 0.01) ctx.transform(1, 0, -lean, 1, 0, 0);   // shear about the feet
     if (this.face < 0) ctx.scale(-1, 1);
     if (this.state === 'spawn') {
-      // rise out of the floor
-      const k = Math.min(1, this.stateT / this.spawnTime), vis = Math.round(a.h * k);
-      ctx.drawImage(f, 0, 0, f.width, vis, -(a.w >> 1), -vis, a.w, vis);
+      // rise out of the floor, a little stretched
+      const k = Math.min(1, this.stateT / this.spawnTime), e = 1 - Math.pow(1 - k, 3), vis = Math.round(f.height * e);
+      ctx.drawImage(f, 0, 0, f.width, vis, -(f.width >> 1), -Math.round(vis * 1.08), f.width, Math.round(vis * 1.08));
     } else {
-      const sq = this.state === 'stunned' ? 0.12 : this.state === 'windup' ? -0.06 : 0;
-      const w = Math.round(a.w * (1 + sq)), h = Math.round(a.h * (1 - sq));
+      const sq = Math.max(-0.35, Math.min(0.4, this.sq + this.poseSquash()));
+      const w = Math.round(f.width * (1 + sq * 0.6)), h = Math.round(f.height * (1 - sq));
       ctx.drawImage(f, -(w >> 1), -h, w, h);
     }
     ctx.restore();
+    void g;
   }
 
   drawGlow(_g: Game, glow: CanvasRenderingContext2D, cx: number, cy: number) {
@@ -164,6 +223,7 @@ export class Ghoul extends Enemy {
         if (this.stateT >= 0.46) {
           this.setState('lunge');
           g.sfx('lunge', this.x);
+          this.punch(3);
           this.vx = this.lungeDx * 280; this.vy = this.lungeDy * 280;
         }
         break;
@@ -226,6 +286,7 @@ export class Caster extends Enemy {
             for (const off of [-0.24, 0, 0.24]) g.enemyBullet(this.x, this.y - 22, a + off, 128, { source: this });
           }
           this.setState('chase');
+          this.punch(2.5);
           this.cd = 1.9 + Math.random() * 1.2;
         }
         break;
@@ -245,6 +306,12 @@ export class Brute extends Enemy {
     super(x, y);
     this.anim = g.A.anim('ogre_run_anim'); this.idleAnim = g.A.anim('ogre_idle_anim');
     this.hp = this.maxHp = 170; this.r = 15; this.heavy = 3.5; this.jitter = 1; this.stunTime = 1.3; this.spawnTime = 1;
+    this.baseSpeed = 38;
+  }
+  onStep(g: Game) {
+    this.punch(1.4);
+    g.sfx('bossStep', this.x, 0.5);
+    g.fx.burst(this.x, this.y, 3, { speed: 30, color: '#3a3352', size: 1, life: 0.35, z: 0, vz: 14, grav: 60 });
   }
   think(g: Game, dt: number) {
     const p = g.player, d = this.dirTo(p.x, p.y);
@@ -271,6 +338,7 @@ export class Brute extends Enemy {
           if (this.attack === 'swing') {
             this.vx = d.dx * 160; this.vy = d.dy * 160;
             g.sfx('swing', this.x);
+            this.punch(3);
             if (d.d < 66 && p.state !== 'dead') {
               const res = g.hitPlayer(this, 22, { parryable: true, kind: 'melee' });
               if (res === 'parried') { g.riposte(this, 45); return; }
@@ -279,6 +347,7 @@ export class Brute extends Enemy {
             g.shake(0.15);
           } else {
             g.sfx('slam', this.x); g.shake(0.45);
+            this.punch(6);
             g.fx.ring(this.ax, this.ay, 62, '#ff3355', 0.35, 3);
             g.fx.burst(this.ax, this.ay, 22, { speed: 150, colors: ['#3a3155', '#5a4a7a'], size: 2, life: 0.6 });
             g.fx.light(this.ax, this.ay, 120, '#ff4422', 1);

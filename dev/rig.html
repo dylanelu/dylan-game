@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hero rig</title>
+  <style>
+    body { margin: 0; padding: 16px; background: #14121d; color: #cfc8e8; font: 12px ui-monospace, Menlo, monospace; }
+    canvas { image-rendering: pixelated; display: block; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; align-items: flex-end; }
+    .cell { text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="row" id="live"></div>
+  <div id="sheet"></div>
+  <script type="module" src="./rig.ts"></script>
+</body>
+</html>
