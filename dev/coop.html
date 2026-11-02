@@ -10,13 +10,17 @@
   </style>
 </head>
 <body>
-  <!-- two players in one page, same room: /dev/coop.html?room=CODE -->
+  <!-- two players in one page, same room. /dev/coop.html?room=CODE
+       Both land in the room's lobby (the first in hosts). Add &mode=pve or &mode=br to have the host start
+       on its own as soon as the second player is in; without it, press START in the left one. -->
   <iframe id="a"></iframe>
   <iframe id="b"></iframe>
   <script>
-    const room = new URLSearchParams(location.search).get('room') || 'T' + Math.random().toString(36).slice(2, 6).toUpperCase();
-    document.getElementById('a').src = `/#room=${room}`;
-    setTimeout(() => { document.getElementById('b').src = `/#room=${room}`; }, 1500);
+    const q = new URLSearchParams(location.search);
+    const room = q.get('room') || 'T' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const auto = /^(pve|br)$/.test(q.get('mode') || '') ? `&auto=${q.get('mode')}` : '';
+    document.getElementById('a').src = `/#room=${room}${auto}`;
+    setTimeout(() => { document.getElementById('b').src = `/#room=${room}${auto}`; }, 1500);
   </script>
 </body>
 </html>

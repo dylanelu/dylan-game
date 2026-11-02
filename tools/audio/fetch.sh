@@ -25,4 +25,7 @@ for f in monster_roar.wav teleport.wav magical_1_0.ogg magical_2.ogg magical_3.o
   curl -sfL -A "$UA" "$B/$f" -o "$RAW/oga/$f"
 done
 rm -rf .dl
+# Ninja Adventure (pixel-boy.itch.io/ninja-adventure-asset-pack, CC0) is an itch.io download with no direct link:
+# get the pack by hand and copy its Audio/Jingles folder to raw/ninja/Jingles.
+[ -d "$RAW/ninja/Jingles" ] || echo "note: copy Ninja Adventure's Audio/Jingles to tools/audio/$RAW/ninja/Jingles for the jingles"
 echo "done: $(find $RAW -type f | wc -l) files"

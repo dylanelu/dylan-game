@@ -8,31 +8,98 @@
   <title>Shadow Gate</title>
   <style>
     html, body { margin: 0; height: 100%; background: #07060c; overflow: hidden; overscroll-behavior: none; }
-    body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font: 12px/1.4 ui-monospace, Menlo, monospace; color: #cfc8e8; }
+    body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font: 12px/1.4 ui-monospace, Menlo, monospace; color: #cfc8e8; -webkit-tap-highlight-color: transparent; }
     #screen { position: fixed; left: 0; top: 0; display: block; image-rendering: pixelated; cursor: crosshair; }
-    #panel { position: fixed; right: 8px; top: calc(8px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 300px; z-index: 2; }
-    #panel button { font: inherit; color: #e6dcff; background: #1a1430cc; border: 1px solid #4a3a7a; border-radius: 4px; padding: 5px 8px; cursor: pointer; }
-    #panel button:hover { background: #2a1f4acc; }
-    #panel button.on { background: #6b3fd6; border-color: #b26bff; }
-    #panel.collapsed button:not(#toggle):not(#pause):not(#coop) { display: none; }
-    #pause { font-weight: 700; letter-spacing: -1px; min-width: 32px; }
+    .menu-open #screen { cursor: default; }
+    .pix { display: block; image-rendering: pixelated; pointer-events: none; flex: none; }
+
+    /* front end (src/ui/menu.ts): one column, chunky buttons, the live world dimmed behind */
+    #ui { position: fixed; inset: 0; z-index: 3; display: flex; overflow-y: auto; touch-action: pan-y; box-sizing: border-box;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      background: radial-gradient(ellipse at 50% 40%, rgba(7,6,12,0.25), rgba(7,6,12,0.85)); }
+    #ui.scr-game { display: none; }
+    #ui.scr-pause, #ui.scr-leave, #ui.scr-end { background: rgba(7,6,12,0.75); }
+    .col { width: 100%; max-width: 440px; margin: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+    .b { appearance: none; font: inherit; width: 100%; min-height: 52px; padding: 10px 16px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      background: #1f1838; border: 2px solid #4a3a7a; border-radius: 6px; box-shadow: 0 4px 0 #0c0916; transition: transform .06s, box-shadow .06s, filter .1s; }
+    .b:hover { filter: brightness(1.18); }
+    .b:active { transform: translateY(3px); box-shadow: 0 1px 0 #0c0916; }
+    .b:focus-visible, .s:focus-visible, .sw:focus-visible, .ad:focus-visible, .pl:focus-visible { outline: 2px solid #ffd84a; outline-offset: 2px; }
+    .b.pri { background: #6b3fd6; border-color: #b26bff; box-shadow: 0 4px 0 #2a1650; }
+    .b.pri:active { box-shadow: 0 1px 0 #2a1650; }
+    .b.big { min-height: 68px; }
+    .b.danger { background: #5a1a2a; border-color: #ff4a6a; box-shadow: 0 4px 0 #2a0610; }
+    .b[disabled] { filter: grayscale(.8) brightness(.55); cursor: default; transform: none; }
+    .row { display: flex; gap: 12px; width: 100%; } .row > * { flex: 1; }
+    .actions { display: flex; flex-direction: column; gap: 12px; width: 100%; margin-top: 4px; }
+    .label { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+    .empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 0; width: 100%; }
+    .top { display: grid; grid-template-columns: 76px 1fr 76px; align-items: center; justify-items: center; width: 100%; }
+    .back { appearance: none; min-width: 76px; min-height: 44px; display: flex; align-items: center; justify-content: center; background: #1a1430; border: 2px solid #3a2f60; border-radius: 6px; cursor: pointer; justify-self: start; }
+    input { -webkit-user-select: text; user-select: text; }
+    input.name, input.code { box-sizing: border-box; width: 100%; height: 48px; background: #120e1e; color: #fff; border: 2px solid #4a3a7a; border-radius: 6px;
+      font: 700 22px/1 ui-monospace, Menlo, monospace; letter-spacing: 3px; text-align: center; text-transform: uppercase; outline: none; }
+    input.name:focus, input.code:focus { border-color: #b26bff; }
+    input.code { height: 56px; font-size: 28px; letter-spacing: 8px; flex: 1; min-width: 0; }
+    input.code::placeholder { color: #3a2f60; }
+
+    .main .title { padding: 4px 0 2px; filter: drop-shadow(0 0 18px rgba(178,107,255,.45)); }
+    .who { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+    .whoctl { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+    .stage { width: 120px; height: 120px; display: flex; align-items: flex-end; justify-content: center; background: radial-gradient(circle at 50% 88%, rgba(178,107,255,.35), transparent 62%); }
+    .hero { width: 64px; height: 112px; image-rendering: pixelated; }
+    .swatches { display: flex; gap: 4px; justify-content: center; }
+    .sw { appearance: none; width: 44px; height: 44px; border-radius: 6px; border: 3px solid #07060c; cursor: pointer; background: linear-gradient(var(--c) 0 55%, var(--d) 55%); }
+    .sw.on { border-color: #fff; box-shadow: 0 0 14px var(--c); }
+    @media (orientation: landscape) and (max-height: 540px) {
+      .col.main { max-width: 760px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: center; }
+      .main .title { grid-column: 1 / -1; justify-self: center; }
+      .stage { height: 84px; } .hero { width: 48px; height: 84px; }
+    }
+
+    .coderow { display: flex; gap: 10px; width: 100%; } .coderow .b { width: 120px; min-height: 56px; }
+    .list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+    .ad { appearance: none; display: grid; grid-template-columns: 1fr auto 64px; align-items: center; gap: 12px; min-height: 58px; padding: 8px 14px; cursor: pointer; text-align: left;
+      background: #120e1e; border: 2px solid #2a2342; border-radius: 6px; }
+    .ad:hover { border-color: #6b3fd6; } .ad .n { justify-self: end; }
+    .ad.locked { opacity: .5; cursor: default; }
+
+    .lobby .code { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .lobby .code .b { width: auto; min-height: 44px; }
+    .settings { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+    .seg { display: flex; width: 100%; box-sizing: border-box; background: #0c0916; border: 2px solid #2a2342; border-radius: 8px; padding: 3px; gap: 3px; }
+    .seg .s { appearance: none; flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+    .seg .s.on { background: #6b3fd6; }
+    .seg .s[disabled] { cursor: default; opacity: .45; }
+    .players { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+    .team { display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--t); padding-left: 10px; }
+    .pl { appearance: none; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 12px; width: 100%; cursor: pointer; background: #120e1e; border: 2px solid #2a2342; border-radius: 6px; }
+    .pl:hover:not(.static) { border-color: #6b3fd6; } .pl.static { cursor: default; }
+    .pl .dot { width: 14px; height: 14px; border-radius: 3px; background: var(--c); flex: none; }
+    .pl .tag { margin-left: auto; }
+    .foot { width: 100%; position: sticky; bottom: 0; padding-top: 10px; background: linear-gradient(transparent, rgba(7,6,12,.95) 35%); }
+    .wait { display: flex; justify-content: center; padding: 20px 0; }
+
+    .pause .help { display: grid; grid-template-columns: auto auto; gap: 8px 22px; margin-top: 10px; }
+    .end > .pix:first-child { animation: pop .5s cubic-bezier(.2, 1.6, .4, 1) both; }
+    .end.won > .pix:first-child { filter: drop-shadow(0 0 22px rgba(255,216,74,.55)); }
+    .end.lost > .pix:first-child { filter: drop-shadow(0 0 22px rgba(255,51,85,.45)); }
+    .stats { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
+    .stat { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    @keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    #pauseBtn { position: fixed; z-index: 2; left: calc(8px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); width: 44px; height: 44px; padding: 0; cursor: pointer;
+      display: flex; gap: 6px; align-items: center; justify-content: center; background: rgba(26,20,48,.72); border: 2px solid #4a3a7a; border-radius: 8px; }
+    #pauseBtn i { width: 5px; height: 16px; background: #e8dcff; box-shadow: 0 0 0 1px #07060c; }
+    #pauseBtn[hidden] { display: none; }
+    #toast { position: fixed; z-index: 5; left: 50%; top: calc(16px + env(safe-area-inset-top)); transform: translateX(-50%); padding: 10px 16px; pointer-events: none;
+      background: rgba(26,20,48,.94); border: 2px solid #6b3fd6; border-radius: 6px; }
   </style>
 </head>
-<body>
+<body class="menu-open">
   <canvas id="screen"></canvas>
-  <div id="panel">
-    <button data-act="ghoul" title="1">Ghouls</button>
-    <button data-act="caster" title="2">Casters</button>
-    <button data-act="brute" title="3">Brute</button>
-    <button data-act="boss" title="4">Boss</button>
-    <button data-act="wave" title="5">Wave</button>
-    <button data-act="clear" title="0">Clear</button>
-    <button data-act="god" title="G">God</button>
-    <button data-act="hitbox" title="H">Hitbox</button>
-    <button id="coop" data-act="coop" title="Play with friends: creates a room and copies its link">Co-op</button>
-    <button id="toggle" data-act="toggle">Sandbox</button>
-    <button id="pause" data-act="pause" title="Esc">II</button>
-  </div>
+  <button id="pauseBtn" type="button" aria-label="Pause" hidden><i></i><i></i></button>
+  <div id="ui"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

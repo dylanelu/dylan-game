@@ -73,6 +73,8 @@ export class Player {
   /** co-op: set on other players' characters (null for the local player) */
   peerId: string | null = null;
   netX = 0; netY = 0;
+  /** display name and team (battle royale; everyone is team 0 in PvE) */
+  name = ''; team = 0;
 
   constructor(public x: number, public y: number) {}
 

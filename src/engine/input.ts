@@ -27,7 +27,7 @@ export class Input {
   move = { x: 0, y: 0 };
   firing = false;
   aim = { x: 0, y: 0 };         // native screen coords
-  device: 'mouse' | 'touch' = 'mouse';
+  device: 'mouse' | 'touch' = matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse';
   joy: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
   /** an item button being dragged to aim (touch), in native screen px */
   itemDrag: { id: number; slot: number; ox: number; oy: number; x: number; y: number } | null = null;
@@ -75,6 +75,7 @@ export class Input {
   private keyDown(e: KeyboardEvent) {
     this.gesture();
     if (e.metaKey || e.ctrlKey || e.altKey) return;   // browser / OS shortcuts aren't game input
+    if (e.target instanceof HTMLInputElement) return;  // typing a name or a room code
     const code = codeOf(e);
     // keep the browser from acting on game keys: Firefox's find-as-you-type would open its find bar on the
     // first letter and swallow the rest, arrows and Space would scroll

@@ -11,7 +11,9 @@ import { TILE, type Room } from './world';
 export const NIGHT_LENGTH = 600;
 export const BOSS_AT = 540;
 /** [time (s), storm radius (px)]: holds, then shrinks; interpolated between keys */
-const STORM: [number, number][] = [[0, 5600], [120, 5600], [180, 3600], [290, 3600], [350, 2100], [440, 2100], [500, 900], [BOSS_AT, 900], [NIGHT_LENGTH, 420]];
+const STORM_PVE: [number, number][] = [[0, 5600], [120, 5600], [180, 3600], [290, 3600], [350, 2100], [440, 2100], [500, 900], [BOSS_AT, 900], [NIGHT_LENGTH, 420]];
+/** Battle royale: no gate; the circle keeps closing to nothing, so a match always ends */
+const STORM_BR: [number, number][] = [[0, 5600], [90, 5600], [150, 3900], [230, 3900], [290, 2400], [370, 2400], [430, 1350], [500, 1350], [550, 630], [600, 630], [660, 0]];
 
 interface Camp { room: Room; state: 'dormant' | 'active' | 'cleared'; ids: number[]; boss?: EnemyKind }
 
@@ -75,6 +77,7 @@ export class Night {
   get cy() { return this.g.level.arena.cy; }
 
   stormAt(t: number) {
+    const STORM = this.g.mode === 'br' ? STORM_BR : STORM_PVE;
     for (let i = 1; i < STORM.length; i++) {
       const [t1, r1] = STORM[i], [t0, r0] = STORM[i - 1];
       if (t <= t1) return r0 + (r1 - r0) * Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
@@ -84,10 +87,17 @@ export class Night {
   get stormR() { return this.stormAt(this.t); }
   /** The circle the storm is heading to next (for the minimap). */
   get nextR() {
-    for (const [tk, r] of STORM) if (tk > this.t && r < this.stormR - 1) return r;
+    for (const [tk, r] of this.g.mode === 'br' ? STORM_BR : STORM_PVE) if (tk > this.t && r < this.stormR - 1) return r;
     return this.stormR;
   }
   get closing() { return this.stormAt(this.t + 1) < this.stormR - 0.1; }
+  /** Seconds until the circle next starts closing (0 while it is), or null when it never will again. */
+  get nextClose(): number | null {
+    if (this.closing) return 0;
+    const keys = this.g.mode === 'br' ? STORM_BR : STORM_PVE;
+    for (let i = 1; i < keys.length; i++) if (keys[i - 1][0] > this.t && keys[i][1] < keys[i - 1][1]) return keys[i - 1][0] - this.t;
+    return null;
+  }
   outside(x: number, y: number) { return Math.hypot(x - this.cx, y - this.cy) > this.stormR; }
 
   /** Pick the squad's drop point: open ground somewhere on the rim. */
@@ -106,10 +116,14 @@ export class Night {
       if (this.t >= at && !this.said.has(key)) { this.said.add(key); g.banner(text, color, dur); if (key !== 'start') g.sfx('danger', p.x); }
     };
     say('start', 0.5, 'NIGHT FALLS', '#b26bff', 2.6);
-    say('storm1', 120, 'THE SHADOW CLOSES IN', '#b26bff');
-    say('storm2', 290, 'THE SHADOW CLOSES IN', '#b26bff');
-    say('storm3', 440, 'THE SHADOW CLOSES IN', '#ff6680');
-    say('soon', BOSS_AT - 30, 'THE GATE STIRS', '#ff6680');
+    if (g.mode === 'br') {
+      for (const [i, at] of [90, 230, 370, 500, 600].entries()) say(`storm${i}`, at, 'THE SHADOW CLOSES IN', i > 2 ? '#ff6680' : '#b26bff');
+    } else {
+      say('storm1', 120, 'THE SHADOW CLOSES IN', '#b26bff');
+      say('storm2', 290, 'THE SHADOW CLOSES IN', '#b26bff');
+      say('storm3', 440, 'THE SHADOW CLOSES IN', '#ff6680');
+      say('soon', BOSS_AT - 30, 'THE GATE STIRS', '#ff6680');
+    }
 
     // storm hurts whoever stands in it, more as the night goes on
     if (p.state !== 'dead' && this.outside(p.x, p.y)) {
@@ -140,7 +154,7 @@ export class Night {
         }
       }
     }
-    if (!this.bossSpawned && this.t >= BOSS_AT) {
+    if (!this.bossSpawned && this.t >= BOSS_AT && g.mode !== 'br') {
       this.bossSpawned = true;
       // everyone still out in the dark is pulled to the gate
       for (const e of g.enemies) if (!e.ally && !e.boss) e.dead = true;

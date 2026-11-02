@@ -2,6 +2,7 @@ import type { Audio } from '../engine/audio';
 import type { Input } from '../engine/input';
 import type { PostParams, Renderer } from '../engine/renderer';
 import type { Coop } from '../net/coop';
+import { teamColor, type Mode } from '../net/lobby';
 import { HERO_LOOKS, type Assets } from './assets';
 import { Boss } from './boss';
 import { isRosterBoss, ScriptedBoss } from './bossmoves';
@@ -27,8 +28,27 @@ export interface Bullet {
   hits: Set<Enemy> | null; source: Enemy | null;
   knock?: number;        // knockback on hit (default by kind)
   nid?: number;          // network id for enemy bullets (co-op)
-  cosmetic?: boolean;    // another player's shot: drawn, never deals damage here
+  cosmetic?: boolean;    // another player's shot: drawn, never deals damage to enemies here
+  owner?: string;        // peer id of the player who fired it (unset: this machine's own shots, or enemies)
+  pid?: number;          // the shooter's shot number, so a PvP target can say which shot it stopped
+  pvp?: boolean;         // fired by someone on another team: it can hit this machine's player
 }
+
+/** A battle royale in progress: who's on which team (by peer id) and how it went for us. */
+export interface Match {
+  teams: Map<string, number>;
+  nTeams: number;
+  startT: number;
+  /** our team is out (or won): placement 1 = winner */
+  result: { won: boolean; place: number } | null;
+  /** one team (or none) left: the match is over for everyone */
+  over: boolean;
+}
+
+/** PvP damage scale: player weapons are tuned against monster hp; players have far less */
+const PVP_DMG = 0.6;
+/** a death within this long of a PvP hit credits that player (storm, monsters, falls...) */
+const CREDIT_SEC = 6;
 
 export interface Hazard { x: number; y: number; r: number; maxR: number; speed: number; dmg: number; hit: boolean }
 
@@ -64,7 +84,6 @@ export class Game {
   showHitbox = false;
   combo = 0; comboT = 0;
   bannerText = ''; bannerColor = '#fff'; bannerT = 0; bannerDur = 0;
-  hintT = 14;
   deadT = 0;
   kills = 0;
   renderDt = 1 / 60;
@@ -75,6 +94,22 @@ export class Game {
   /** co-op session (null when playing solo) and the other players' characters */
   coop: Coop | null = null;
   remotes = new Map<string, Player>();
+  /** the front end is up: the world is only a backdrop, nothing simulates */
+  menu = true;
+  mode: Mode = 'pve';
+  match: Match | null = null;
+  /** kill feed, newest last */
+  feed: { a: string; ac: string; b: string; bc: string; t: number }[] = [];
+  /** the last player to hurt us, for kill credit */
+  lastHitBy: { id: string; t: number } | null = null;
+  pvpKills = 0;
+  /** battle royale: dead players watch a teammate */
+  spectating: Player | null = null;
+  /** a menu (pause, end of match) covers the game: the HUD keeps its corners and drops the middle */
+  overlay = false;
+  /** first solo run: a short controls card */
+  tutorialT = 0;
+  private shotSeq = 0;
   nextId = 0;
   private bulletSeq = 0;
   private mirroring = false;
@@ -208,9 +243,10 @@ export class Game {
     if (this.coop?.isHost) this.coop.enemyBulletSpawned(b);
   }
 
-  /** A shot from the local player: tell the others so they see it. */
+  /** A shot from the local player: tell the others so they see it (and, in PvP, so a target can take it). */
   onShot(b: Bullet) {
-    this.coop?.push({ t: 'pb', x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), r: b.r, c: b.color, k: b.kind, l: b.life });
+    b.pid = ++this.shotSeq;
+    this.coop?.push({ t: 'pb', id: b.pid, x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), r: b.r, c: b.color, k: b.kind, l: Math.round(b.life * 100) / 100, d: Math.round(b.dmg) });
   }
 
   /** Every living hunter in the night, local and remote. */
@@ -234,13 +270,85 @@ export class Game {
 
   /** An enemy attack landing on `target`. Local targets resolve now; remote ones resolve on their own machine,
    *  and a parry there calls `onParried` here a moment later. */
-  attack(target: Player, src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean }, onParried?: () => void): HitResult | 'pending' {
+  attack(target: Player, src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean; pvp?: boolean }, onParried?: () => void): HitResult | 'pending' {
     if (target === this.wx.decoy) return 'ignored';
     if (src instanceof Enemy) dmg = Math.round(dmg * src.dmgMul);
     if (target.peerId && this.coop) { this.coop.remoteAttack(target, src, dmg, o, onParried); return 'pending'; }
     const res = this.hitPlayer(src, dmg, o);
     if (res === 'parried') onParried?.();
     return res;
+  }
+
+  // ------------------------------------------------------------------ PvP (battle royale)
+
+  /** Peer id for this machine ('' solo). */
+  get selfId() { return this.coop?.selfId ?? ''; }
+  /** Team of a player by peer id, as fixed at the start of the match. */
+  teamOf(id: string) { return this.match?.teams.get(id) ?? 0; }
+  /** Someone this machine's player may hurt (and be hurt by): battle royale, another team. */
+  isFoeId(id: string) { return this.mode === 'br' && !!this.match && this.match.teams.has(id) && this.teamOf(id) !== this.player.team; }
+  /** Other players this machine's player can hit right now. */
+  pvpFoes(): Player[] {
+    if (this.mode !== 'br') return [];
+    return [...this.remotes.values()].filter((r) => r.peerId && this.isFoeId(r.peerId) && r.state !== 'dead' && !r.dissolved);
+  }
+
+  /** Melee hook (playerStrike calls this): hit every enemy player within `reach` of (x, y). Each hit is
+   *  resolved on the victim's machine, so they can still parry or roll it; a parry staggers us. */
+  strikePlayers(x: number, y: number, reach: number, dmg: number, o: { heavy?: boolean; counter?: boolean } = {}) {
+    for (const foe of this.pvpFoes()) {
+      if (Math.hypot(foe.x - x, foe.y - y) > reach + foe.r) continue;
+      this.attack(foe, this.player, Math.round(dmg * PVP_DMG), { kind: 'melee', heavy: o.heavy, counter: o.counter, pvp: true }, () => this.strikeParried(foe));
+    }
+  }
+
+  /** Our strike was perfect-parried on their machine: we reel. */
+  private strikeParried(by: Player) {
+    const p = this.player;
+    if (p.state === 'dead') return;
+    p.setState('recover'); p.play('hit');
+    const dx = p.x - by.x, dy = p.y - by.y, l = Math.hypot(dx, dy) || 1;
+    p.vx += (dx / l) * 160; p.vy += (dy / l) * 160;
+    this.parryFx((p.x + by.x) / 2, (p.y + by.y) / 2 - 28, false, true);
+    this.fx.text(p.x, p.y - Player.HEAD - 12, 'PARRIED', '#ff6680', 1, 0.6);
+    this.shake(0.3); this.hitstop(0.06);
+  }
+
+  /** Victim's machine → us: our shot or strike landed. */
+  pvpHitLanded(victimId: string, dmg: number, _down: boolean) {
+    const v = this.remotes.get(victimId);
+    if (!v) return;
+    v.flash = 0.08;
+    this.fx.text(v.x, v.y - Player.HEAD - 12, `-${dmg}`, '#ffd84a', 1, 0.6);
+    this.sfx('hit', v.x, 0.7);
+  }
+
+  /** Someone else died (their machine says so): kill feed, credit, and maybe the end of a team. */
+  remoteDied(id: string, by: string | null, how: string) {
+    const v = this.remotes.get(id);
+    if (v) { v.hp = 0; v.state = 'dead'; }
+    const vName = this.coop?.net.nameOf(id) ?? '?';
+    this.addFeed(by, vName, this.teamOf(id), how);
+    if (by && by === this.selfId) {
+      this.pvpKills++;
+      this.fx.text(this.player.x, this.player.y - Player.HEAD - 20, `ELIMINATED ${vName}`, '#ffd84a', 1, 1.2);
+      this.sfx('crit', this.player.x); this.flash('#ffd84a', 0.12);
+      this.gainXp(120 + 30 * (v?.level ?? 1));
+    }
+  }
+
+  private addFeed(by: string | null, victim: string, vTeam: number, how: string) {
+    const name = (id: string) => id === this.selfId ? this.player.name : this.coop?.net.nameOf(id) ?? '?';
+    const a = by ? name(by) : how === 'storm' ? 'STORM' : how === 'left' ? '' : 'MONSTERS';
+    this.feed.push({ a, ac: by ? this.colorOf(by) : '#b26bff', b: victim, bc: this.mode === 'br' ? teamColor(vTeam) : '#e8e4f0', t: 0 });
+    if (this.feed.length > 5) this.feed.shift();
+  }
+
+  /** Name tag / minimap color: the team color in battle royale, the hero's trim in PvE. */
+  colorOf(id: string) {
+    if (this.mode === 'br') return teamColor(this.teamOf(id));
+    const look = id === this.selfId ? this.player.slot : this.coop?.net.lookOf(id) ?? 0;
+    return HERO_LOOKS[look].trim;
   }
 
   // ------------------------------------------------------------------ combat resolution
@@ -295,7 +403,8 @@ export class Game {
     const p = this.player;
     if (!this.god) p.hp -= dmg;
     this.combo = 0;
-    if (guarded) return;
+    const how = this.lastHitBy && this.time - this.lastHitBy.t < 0.5 ? 'pvp' : 'monster';
+    if (guarded) { if (p.hp <= 0) this.killPlayer(how); return; }
     const dx = p.x - src.x, dy = p.y - src.y, l = Math.hypot(dx, dy) || 1;
     p.vx += (dx / l) * 220; p.vy += (dy / l) * 220;
     p.invuln = 0.7; p.flash = 0.1;
@@ -305,7 +414,7 @@ export class Game {
     this.hitstop(0.08); this.shake(0.5); this.chroma(1.2); this.flash('#ff1133', 0.22);
     this.fx.burst(p.x, p.y - Player.CHEST, 14, { speed: 150, colors: ['#8e1b2e', '#5a0f1e'], size: 2, life: 0.6, decal: '#2a0610' });
     this.fx.text(p.x, p.y - Player.HEAD - 12, `-${dmg}`, '#ff4a6a', 1, 0.7);
-    if (p.hp <= 0) this.killPlayer();
+    if (p.hp <= 0) this.killPlayer(how);
   }
 
   private perfectParry(x: number, y: number, kind: string, heavy = false) {
@@ -350,14 +459,18 @@ export class Game {
     this.fx.text(p.x, p.y - Player.HEAD - 12, `-${dmg}`, '#b26bff', 1, 0.6);
     this.post.chroma = Math.max(this.post.chroma, 0.5);
     this.sfx('hurt', p.x, 0.4);
-    if (p.hp <= 0) this.killPlayer();
+    if (p.hp <= 0) this.killPlayer('storm');
   }
 
-  private killPlayer() {
+  private killPlayer(how = '') {
     const p = this.player;
     p.hp = 0; p.setState('dead'); this.deadT = 0;
-    this.slowmo(1.2, 0.25); this.banner('DEFEATED', '#ff3355', 3);
+    this.slowmo(1.2, 0.25); this.banner(this.mode === 'br' ? 'ELIMINATED' : 'DEFEATED', '#ff3355', 3);
     this.sfx('playerDeath', p.x); this.audio.muffleFor(2.5, 400); this.audio.setMusic(null);
+    // everyone hears who fell and to whom: kill feed, credit, eliminations
+    const by = this.lastHitBy && this.time - this.lastHitBy.t < CREDIT_SEC ? this.lastHitBy.id : null;
+    this.coop?.push({ t: 'die', by, how });
+    if (this.coop) this.addFeed(by, p.name, p.team, how);
   }
 
   /** The gate opened: anyone outside the final circle is pulled in through the shadows. */
@@ -382,7 +495,7 @@ export class Game {
       p.level++;
       p.maxHp += 12; p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.4));
       this.banner(`LEVEL ${p.level}`, '#ffd84a', 1.6);
-      this.sfx('break', p.x, 0.6); this.flash('#ffd84a', 0.15);
+      this.audio.jingle('levelUp', 0.7); this.flash('#ffd84a', 0.15);
       this.fx.ring(p.x, p.y, 50, '#ffd84a', 0.6, 3);
       this.fx.burst(p.x, p.y, 40, { speed: 30, colors: ['#ffd84a', '#fff2b0', '#ffffff'], glow: true, grav: -200, vz: 140, life: 1.1, size: 1, drag: 1 });
     }
@@ -570,6 +683,11 @@ export class Game {
       hit.push(e);
     }
     if (o.cutBullets) for (const b of this.bullets) if (b.team === 'enemy' && b.life > 0 && strikeDist(s, b.x, b.y, b.y, b.r) >= 0) this.wx.cutBullet(b);
+    // PvP: the same swing catches hunters of other teams; each judges it on their own machine, so they can parry
+    for (const foe of this.pvpFoes()) {
+      if (strikeDist(s, foe.x, foe.y - Player.HEAD, foe.y, foe.r + 3) < 0) continue;
+      this.attack(foe, p, Math.round(dmg * PVP_DMG), { kind: 'melee', heavy: !!o.crit, pvp: true }, () => this.strikeParried(foe));
+    }
     return hit;
   }
 
@@ -620,6 +738,7 @@ export class Game {
       this.slowmo(2, 0.2); this.flash('#ffffff', 0.5); this.shake(1); this.chroma(2);
       this.banner('GATE CLEARED', '#ffd84a', 3.5);
       this.sfx('break', e.x); this.audio.setMusic(null);
+      this.later(1.2, () => this.audio.jingle('victory'));
       this.bullets = this.bullets.filter((b) => b.team === 'player');
       for (let i = 0; i < 6; i++) this.later(i * 0.12, () => {
         this.fx.ring(e.x, e.y - 40, 60 + i * 30, i % 2 ? '#ffd84a' : '#b26bff', 0.6, 3);
@@ -656,10 +775,11 @@ export class Game {
   }
 
   update(dt: number) {
+    if (this.menu) { this.updateBackdrop(dt); return; }
     if (this.paused) {
       this.post.desat += (0.55 - this.post.desat) * Math.min(1, dt * 8);
       // solo: freeze. co-op: the world keeps going for everyone else; only our inputs stop
-      if (!this.coop || !this.remotes.size) return;
+      if (!this.coop) return;
       this.input.events.length = 0; this.input.firing = false; this.input.move = { x: 0, y: 0 };
     }
     this.time += dt;
@@ -671,7 +791,7 @@ export class Game {
     this.post.flash *= Math.exp(-dt * 9);
     this.post.chroma *= Math.exp(-dt * 6);
     this.post.zoom = 1 + (this.post.zoom - 1) * Math.exp(-dt * 10);
-    this.bannerT += dt; this.hintT -= dt;
+    this.bannerT += dt; this.tutorialT -= dt;
     this.post.lowHp = p.hp / p.maxHp < 0.3 && p.state !== 'dead' ? 0.35 + 0.25 * Math.sin(this.time * 6) : 0;
     this.post.desat += ((p.state === 'dead' ? 0.8 : 0) - this.post.desat) * Math.min(1, dt * 3);
 
@@ -683,12 +803,10 @@ export class Game {
 
     // input
     for (const ev of this.input.events.splice(0)) {
-      if (this.night.ended && this.night.endT > 1.5 && (ev.type === 'parry' || ev.type === 'roll')) { this.restartNight(); break; }
       if (ev.type === 'item') { this.useItem(ev.slot, ev.dx, ev.dy, ev.dragged); continue; }
       if (ev.type === 'parry') p.tryParry(this);
       else if (ev.type === 'roll') p.tryRoll(this, ev.dx, ev.dy);
       else if (ev.type === 'key') {
-        if (ev.key === 'KeyR' && this.night.ended && this.night.endT > 1.5) this.restartNight();
         if (ev.key === 'KeyM') this.mapOpen = !this.mapOpen;
         const map: Record<string, string> = { Digit1: 'ghoul', Digit2: 'caster', Digit3: 'brute', Digit4: 'boss', Digit5: 'wave', Digit0: 'clear', KeyG: 'god', KeyH: 'hitbox' };
         if (map[ev.key]) this.sandbox(map[ev.key]);
@@ -716,12 +834,15 @@ export class Game {
         if (p.sprite) this.fx.dissolve(p.sprite.img, p.x, p.y, p.sprite.ax, p.sprite.ay, p.face < 0, { every: 1 });
         this.sfx('arise', p.x, 0.6);
       }
-      if (this.deadT > 3.2 && !this.night.ended) {
+      if (this.mode === 'br') {
+        // battle royale: no coming back; watch a teammate (or whoever's still standing)
+        if (this.deadT > 2.5 && (!this.spectating || this.spectating.state === 'dead' || this.spectating.dissolved || !this.remotes.has(this.spectating.peerId!))) this.spectating = this.spectateTarget();
+      } else if (this.deadT > 3.2 && !this.night.ended) {
         // solo: the night is lost. co-op: come back beside a teammate, unless everyone is down
         const mates = [...this.remotes.values()].some((r) => r.state !== 'dead' && !r.dissolved);
         if (mates) this.respawn();
         else if (!this.coop && this.night.revives > 0) { this.night.revives--; this.respawn(); this.banner('REVIVED  LAST CHANCE', '#ff6680', 2.2); }
-        else { this.night.ended = 'lost'; this.night.endT = 0; }
+        else { this.night.ended = 'lost'; this.night.endT = 0; this.audio.jingle('defeat'); }
       }
     }
 
@@ -750,8 +871,12 @@ export class Game {
     else if (hostile === 0 && (this.musicCalm += sdt) > 4) this.audio.setMusic(null);
     this.comboT -= sdt;
     if (this.comboT <= 0) this.combo = 0;
+    for (const f of this.feed) f.t += dt;
+    this.feed = this.feed.filter((f) => f.t < 6);
+    if (this.mode === 'br') this.checkMatch();
 
     // camera: follow with a lead toward the aim, critically damped feel
+    if (this.spectating && p.state === 'dead') { this.follow(this.spectating, dt); return; }
     const lead = this.input.device === 'mouse' ? 0.22 : 0;
     let lx = (p.aimX - p.x) * lead, ly = (p.aimY - p.y) * lead;
     const ll = Math.hypot(lx, ly); if (ll > 60) { lx *= 60 / ll; ly *= 60 / ll; }
@@ -763,6 +888,11 @@ export class Game {
       const w = Math.max(0, Math.min(0.45, (bd - 40) / 400));
       lx = lx * 0.5 + bx * w; ly = ly * 0.5 + by * w;
     }
+    this.follow(p, dt, lx, ly);
+  }
+
+  /** Ease the camera onto a player (plus a lead), clamped to the map. */
+  private follow(p: Player, dt: number, lx = 0, ly = 0) {
     const tx = p.x + lx - this.r.w / 2, ty = p.y - Player.CHEST + ly - this.r.h / 2;
     const k = 1 - Math.exp(-dt * 7);
     this.cam.x += (tx - this.cam.x) * k; this.cam.y += (ty - this.cam.y) * k;
@@ -828,7 +958,30 @@ export class Game {
           if (res === 'parried') this.reflect(b);
           else if (res !== 'dodged') { b.life = 0; if (b.nid) this.coop?.push({ t: 'bk', id: b.nid }); }
         }
+      } else if (b.pvp) {
+        // an enemy player's shot: this machine judges whether it hits us, so our parry / roll timing is exact
+        if (p.state === 'dead' || b.life <= 0) continue;
+        if (Math.hypot(b.x - p.x, b.y - (p.y - Player.CHEST)) < b.r + p.r + 3) {
+          this.lastHitBy = { id: b.owner!, t: this.time };
+          const dmg = Math.max(1, Math.round(b.dmg * PVP_DMG));
+          const res = this.hitPlayer(b, dmg, { kind: 'bullet', heavy: b.kind === 'big' && b.dmg >= 40 });
+          if (res === 'parried') this.reflectPvp(b);
+          else if (res !== 'dodged' && res !== 'ignored') {
+            b.life = 0;
+            this.coop?.push({ t: 'pbk', o: b.owner, id: b.pid });
+            this.coop?.sendTo(b.owner!, { t: 'ph', d: dmg, p: p.hp <= 0 ? 1 : 0 });
+          }
+        }
       } else {
+        // our own shots stop on an enemy player (they judge the hit; this is just what it looks like here)
+        if (!b.cosmetic && this.mode === 'br') {
+          const foe = this.pvpFoes().find((f) => f.iframes <= 0 && Math.hypot(b.x - f.x, b.y - (f.y - Player.CHEST)) < b.r + f.r + 3);
+          if (foe) {
+            b.life = 0;
+            this.fx.burst(b.x, b.y, 5, { speed: 90, color: b.color, glow: true, life: 0.2, grav: 0 });
+            continue;
+          }
+        }
         for (const e of this.enemies) {
           if (b.cosmetic) break;
           if (e.ally || e.dead || e.state === 'spawn' || b.hits?.has(e)) continue;
@@ -849,6 +1002,23 @@ export class Game {
       }
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
+  }
+
+  /** A parried PvP shot: it's ours now, empowered, flying back at whoever fired it. Everyone sees the original
+   *  stop and a new shot of ours leave, so the shooter can parry it right back. */
+  private reflectPvp(b: Bullet) {
+    const shooter = this.remotes.get(b.owner!);
+    this.coop?.push({ t: 'pbk', o: b.owner, id: b.pid });
+    b.life = 0;
+    const tx = shooter ? shooter.x : b.x - b.vx, ty = shooter ? shooter.y - Player.CHEST : b.y - b.vy;
+    const dx = tx - b.x, dy = ty - b.y, l = Math.hypot(dx, dy) || 1, sp = 380;
+    const r: Bullet = {
+      x: b.x, y: b.y, vx: (dx / l) * sp, vy: (dy / l) * sp, r: 5, dmg: Math.max(28, b.dmg * 1.5), team: 'player', heavy: false,
+      life: 1.5, age: 0, color: '#e8dcff', kind: 'big', pierce: 1, hits: new Set(), source: null,
+    };
+    this.bullets.push(r);
+    this.onShot(r);
+    this.sfx('reflect', b.x);
   }
 
   /** Parried bullets fly back as empowered player shots aimed at whoever fired them. */
@@ -884,18 +1054,122 @@ export class Game {
   /** A fresh night: new storm, new mini-boss arenas, everyone back to level 1 at a new drop point.
    *  In co-op the host decides the drop point and tells everyone. */
   restartNight(drop?: { x: number; y: number }) {
-    if (!this.authority && !drop) { this.coop?.push({ t: 'restartReq' }); return; }
     clearSave();
     this.night = new Night(this);
-    this.enemies = []; this.bullets = []; this.hazards = [];
+    this.enemies = []; this.bullets = []; this.hazards = []; this.timers = [];
     this.wx.reset();
     const at = drop ?? this.night.dropPoint();
-    const slot = this.player.slot;
+    const old = this.player;
     this.player = new Player(at.x + (Math.random() - 0.5) * 30, at.y + (Math.random() - 0.5) * 20);
-    this.player.slot = slot;
+    this.player.slot = old.slot; this.player.name = old.name; this.player.team = old.team;
+    this.level.collide(this.player, this.player.r);
     this.cam.x = this.player.x - this.r.w / 2; this.cam.y = this.player.y - this.r.h / 2;
-    this.post.desat = 0; this.kills = 0; this.deadT = 0;
-    if (this.authority) this.coop?.push({ t: 'reset', x: Math.round(at.x), y: Math.round(at.y) });
+    this.post.desat = 0; this.kills = 0; this.pvpKills = 0; this.deadT = 0;
+    this.spectating = null; this.lastHitBy = null; this.feed = []; this.mapOpen = false;
+    this.bannerDur = 0; this.toastT = 9; this.lastPoi = null;
+  }
+
+  /** A match begins (solo, or the host's START): fresh night, fresh hunter, at our team's drop point.
+   *  `teams`: peer id -> team (empty solo). `drop` null: a night already under way, regroup with the host. */
+  startMatch(mode: Mode, teams: Record<string, number>, drop: { x: number; y: number } | null) {
+    this.mode = mode;
+    const t = new Map(Object.entries(teams));
+    this.match = mode === 'br' ? { teams: t, nTeams: new Set(t.values()).size, startT: this.time, result: null, over: false } : null;
+    this.player.team = t.get(this.selfId) ?? 0;
+    this.restartNight(drop ?? undefined);
+    if (this.coop) this.coop.regroup = !drop;
+    for (const [id, r] of this.remotes) { r.team = this.teamOf(id); }
+    this.menu = false; this.paused = false;
+    this.audio.setPaused(false);
+    this.input.events.length = 0; this.input.firing = false;
+    if (!this.coop) { try { if (!localStorage.getItem('sg.tutorial')) { this.tutorialT = 12; localStorage.setItem('sg.tutorial', '1'); } } catch { /* ignore */ } }
+  }
+
+  /** A late joiner in a battle royale under way: sit it out and watch. */
+  spectateOnly(teams: Record<string, number>) {
+    this.mode = 'br';
+    const t = new Map(Object.entries(teams));
+    t.delete(this.selfId);
+    this.match = { teams: t, nTeams: new Set(t.values()).size, startT: this.time, result: null, over: false };
+    this.restartNight();
+    const p = this.player;
+    p.hp = 0; p.state = 'dead'; p.dissolved = true; this.deadT = 3;
+    this.menu = false;
+  }
+
+  /** Back to the front end: drop the session and start from a clean slate. */
+  toMenu() {
+    this.coop?.leave();
+    this.coop = null;
+    this.remotes.clear();
+    this.mode = 'pve'; this.match = null;
+    this.restartNight();
+    this.menu = true; this.paused = false;
+    this.audio.setPaused(false); this.audio.setMusic(null);
+    this.post.desat = 0; this.tutorialT = 0;
+  }
+
+  /** Between rounds: keep the room, put the world back to the menu backdrop. */
+  toLobby() {
+    const coop = this.coop;
+    this.coop = null;            // so toMenu doesn't leave the room
+    this.toMenu();
+    this.coop = coop;
+  }
+
+  /** `n` drop points on the rim, spread as far apart as the map allows (greedy farthest-point). */
+  dropPoints(n: number) {
+    const all = [...this.level.spawns].sort(() => Math.random() - 0.5), out = [all[0]];
+    while (out.length < n && out.length < all.length) {
+      let best = all[0], bd = -1;
+      for (const s of all) { const d = Math.min(...out.map((o) => Math.hypot(o.x - s.x, o.y - s.y))); if (d > bd) { bd = d; best = s; } }
+      out.push(best);
+    }
+    while (out.length < n) out.push(all[out.length % all.length]);
+    return out.map((s) => ({ ...s }));
+  }
+
+  /** Battle royale bookkeeping on every machine: which teams still stand, and is it over for us? */
+  private checkMatch() {
+    const m = this.match;
+    if (!m || this.time - m.startT < 3) return;   // give everyone's first state a moment to arrive
+    const alive = new Set<number>();
+    for (const [id, team] of m.teams) {
+      if (id === this.selfId) { if (this.player.state !== 'dead') alive.add(team); continue; }
+      const r = this.remotes.get(id);
+      // a player we haven't heard from yet still counts if they're in the room
+      if (r ? r.state !== 'dead' && !r.dissolved : this.coop?.net.peers.has(id)) alive.add(team);
+    }
+    const mine = this.player.team;
+    if (!m.result && m.teams.has(this.selfId)) {
+      if (!alive.has(mine)) m.result = { won: false, place: alive.size + 1 };
+      else if (alive.size <= 1 && m.nTeams > 1) m.result = { won: true, place: 1 };
+      if (m.result) {
+        this.audio.setMusic(null);
+        this.audio.jingle(m.result.won ? 'victory' : 'defeat');
+        if (m.result.won) { this.banner('VICTORY', '#ffd84a', 3); this.slowmo(1.5, 0.3); this.flash('#ffffff', 0.3); }
+      }
+    }
+    m.over = alive.size <= 1 && (m.nTeams > 1 || alive.size === 0);
+  }
+
+  /** Who a dead battle royale player watches: a living teammate, else anyone still standing. */
+  private spectateTarget(): Player | null {
+    const alive = [...this.remotes.values()].filter((r) => r.state !== 'dead' && !r.dissolved);
+    return alive.find((r) => r.team === this.player.team) ?? alive[0] ?? null;
+  }
+
+  /** The main-menu backdrop: drift slowly across the moonlit map. */
+  private updateBackdrop(dt: number) {
+    this.time += dt;
+    this.input.events.length = 0;
+    const a = this.time * 0.03, L = this.level;
+    const tx = L.width / 2 + Math.cos(a) * L.width * 0.3 - this.r.w / 2, ty = L.height / 2 + Math.sin(a * 1.3) * L.height * 0.25 - this.r.h / 2;
+    const k = 1 - Math.exp(-dt * 0.8);
+    this.cam.x += (tx - this.cam.x) * k; this.cam.y += (ty - this.cam.y) * k;
+    this.post.desat += (0.35 - this.post.desat) * Math.min(1, dt * 2);
+    this.post.flash *= Math.exp(-dt * 9); this.post.chroma *= Math.exp(-dt * 6);
+    this.fx.update(dt);
   }
 
   /** Where to come back: next to a living teammate if there is one, else a safe room. */
@@ -909,11 +1183,10 @@ export class Game {
     const at = this.respawnPoint();
     const old = this.player, p = new Player(at.x, at.y);
     // you keep your level and gear; you come back at half health
-    p.slot = old.slot; p.level = old.level; p.xp = old.xp; p.weapon = old.weapon; p.passives = old.passives;
+    p.slot = old.slot; p.name = old.name; p.team = old.team; p.level = old.level; p.xp = old.xp; p.weapon = old.weapon; p.passives = old.passives;
     p.actives = old.actives; p.relics = old.relics;
     p.maxHp = old.maxHp; p.hp = Math.round(old.maxHp / 2);
     this.player = p;
-    p.slot = this.player.slot;
     this.hazards = [];
     if (this.authority && !this.remotes.size) {
       this.bullets = [];
@@ -950,9 +1223,12 @@ export class Game {
     const items: { y: number; draw: () => void }[] = [];
     for (const c of this.level.propsIn(cx, cy, W, H)) items.push({ y: c.y, draw: () => this.level.drawColumn(s, c, cx, cy) });
     for (const e of this.enemies) items.push({ y: e.y, draw: () => e.draw(this, s, cx, cy) });
-    const p = this.player;
-    items.push({ y: p.y, draw: () => p.draw(this, s, gl, cx, cy, this.renderDt) });
-    for (const rp of this.remotes.values()) items.push({ y: rp.y, draw: () => rp.draw(this, s, gl, cx, cy, this.renderDt) });
+    // what the camera is about: us, or the teammate we're watching
+    const p = this.spectating && this.player.state === 'dead' ? this.spectating : this.player;
+    if (!this.menu) {
+      items.push({ y: this.player.y, draw: () => this.player.draw(this, s, gl, cx, cy, this.renderDt) });
+      for (const rp of this.remotes.values()) items.push({ y: rp.y, draw: () => rp.draw(this, s, gl, cx, cy, this.renderDt) });
+    }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     for (const e of this.enemies) e.drawGlow(this, gl, cx, cy);
@@ -969,7 +1245,7 @@ export class Game {
     const indoor = this.level.indoorAt(p.x, p.y) ? 1 : 0;
     this.indoorK += (indoor - this.indoorK) * Math.min(1, this.renderDt * 3);
     const mix = (a: number, b: number) => Math.round(a + (b - a) * this.indoorK);
-    li.fillStyle = p.state === 'dead' ? '#26242e' : `rgb(${mix(70, 51)},${mix(74, 49)},${mix(108, 63)})`;
+    li.fillStyle = p.state === 'dead' && !this.menu ? '#26242e' : `rgb(${mix(70, 51)},${mix(74, 49)},${mix(108, 63)})`;
     li.fillRect(0, 0, W + 2, H + 2);
     li.globalCompositeOperation = 'lighter';
     const L = (x: number, y: number, r: number, color: string, a = 1) => {
@@ -980,8 +1256,10 @@ export class Game {
     const lw = 0.25 + 0.65 * this.indoorK;
     for (const l of this.level.lights) L(l.x, l.y, l.radius * (1 + Math.sin(this.time * 9 + l.x) * l.flicker * 0.3), l.color, lw);
     // the hunter's own glow: strong in the dungeon dark, a gentle halo under the moon
-    L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.18 + 0.57 * this.indoorK);
-    L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.06 + 0.12 * this.indoorK);
+    if (!this.menu) {
+      L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.18 + 0.57 * this.indoorK);
+      L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.06 + 0.12 * this.indoorK);
+    }
     // moonlit ground is already lit, so additive glows need less to read and saturate much sooner
     const lo = 0.6 + 0.4 * this.indoorK;
     for (const e of this.enemies) if (e.state !== 'spawn') L(e.x, e.y - 8, e.boss ? 60 : 30, e.ally ? '#7a3cff' : '#ff3355', 0.22 * lo * lo);
@@ -998,17 +1276,17 @@ export class Game {
     const ux = Math.round(camX), uy = Math.round(camY);
     this.fx.drawTexts(ui, ux, uy);
     if (this.showHitbox) this.drawHitboxes(ui, ux, uy);
-    // co-op name tags in each player's trim color
-    if (this.coop) {
-      for (const pl of [this.player, ...this.remotes.values()]) {
-        if (pl.dissolved) continue;
-        const look = HERO_LOOKS[pl.slot], tag = pl === this.player ? 'YOU' : `P${pl.slot + 1}`;
-        drawText(ui, tag, Math.round(pl.x - ux) - textWidth(tag) / 2, Math.round(pl.y - uy) - Player.HEAD - 10, look.trim);
+    if (!this.menu) {
+      // name tags: team color in battle royale, the hero's trim in PvE
+      for (const pl of this.remotes.values()) {
+        if (pl.dissolved || !pl.peerId) continue;
+        const tag = pl.name || '?';
+        drawText(ui, tag, Math.round(pl.x - ux) - textWidth(tag) / 2, Math.round(pl.y - uy) - Player.HEAD - 10, this.colorOf(pl.peerId));
       }
+      this.drawThreats(ui, ux, uy);
+      drawHud(this, ui);
+      hudHit(this);
     }
-    this.drawThreats(ui, ux, uy);
-    drawHud(this, ui);
-    hudHit(this);
     this.coop?.flush();
 
     R.present(this.post, this.time);

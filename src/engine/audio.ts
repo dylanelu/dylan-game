@@ -40,6 +40,10 @@ const EVENTS: Record<string, { layers: Layer[]; gate?: number; maxVoices?: numbe
   spawn:      { gate: 0.12, maxVoices: 3, layers: [{ clip: 'magic', vol: 0.25, pitch: [0.5, 0.6], rev: 0.8 }] },
   break:      { layers: [{ clip: 'bell', vol: 0.9, pitch: [0.7, 0.75], rev: 1 }, { clip: 'crunch', vol: 0.7 }, { clip: 'boom', vol: 0.7 }] },
   select:     { layers: [{ clip: 'select', vol: 0.5 }] },
+  // jingles (Ninja Adventure): played with jingle(), not play()
+  victory:    { layers: [{ clip: 'victory', vol: 0.8, pitch: [1, 1] }] },
+  defeat:     { layers: [{ clip: 'defeat', vol: 0.8, pitch: [1, 1] }] },
+  levelUp:    { gate: 0.5, layers: [{ clip: 'levelUp', vol: 0.55, pitch: [1, 1] }] },
 };
 
 export class Audio {
@@ -153,6 +157,27 @@ export class Audio {
       }
     }
     this.synthLayer(name);
+  }
+
+  /** Jingles (victory, defeat, level up) skip the muffle, the reverb and the pause murmur: they're the game
+   *  talking to you, not a sound in the room. Music ducks under them. */
+  jingle(name: string, vol = 1) {
+    const ctx = this.ctx, ev = EVENTS[name];
+    if (!ctx || this.muted || ctx.state !== 'running' || !ev) return;
+    const now = ctx.currentTime;
+    if (ev.gate && now - (this.lastPlay.get(name) ?? -1) < ev.gate) return;
+    this.lastPlay.set(name, now);
+    let dur = 0;
+    for (const L of ev.layers) {
+      const buf = this.pick(L.clip);
+      if (!buf) continue;
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain(); g.gain.value = L.vol * vol;
+      src.connect(g).connect(ctx.destination);
+      src.start(now + (L.delay ?? 0));
+      dur = Math.max(dur, buf.duration);
+    }
+    if (dur) this.duck(0.25, dur);
   }
 
   /** Synth sub layers: the low-end weight that makes impacts feel heavy. */
