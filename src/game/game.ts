@@ -750,7 +750,9 @@ export class Game {
     L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.75);
     L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.18);
     for (const e of this.enemies) if (e.state !== 'spawn') L(e.x, e.y - 8, e.boss ? 60 : 30, e.ally ? '#7a3cff' : '#ff3355', 0.22);
-    for (const b of this.bullets) L(b.x, b.y, b.team === 'player' ? 22 : 18, b.team === 'player' ? '#9a5cff' : '#ff3355', 0.55);
+    // bullet lights share a budget: dense patterns would otherwise stack into a white-out
+    const share = Math.min(1, 22 / Math.max(1, this.bullets.length));
+    for (const b of this.bullets) L(b.x, b.y, b.team === 'player' ? 22 : 18, b.team === 'player' ? '#9a5cff' : '#ff3355', 0.55 * share);
     for (const l of this.fx.lights) L(l.x, l.y, l.r, l.color, l.a);
     this.fx.lights.length = 0;
     li.globalAlpha = 1;
