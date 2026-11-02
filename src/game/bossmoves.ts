@@ -65,11 +65,11 @@ export class ScriptedBoss extends AreaBoss {
     }
   }
 
-  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
     if (this.alpha < 0.3) return;
     let mul = 1;
-    if (this.hardT > 0 && opts.how !== 'nape') { mul = 0.1; g.fx.burst(this.x, this.y - 40, 4, { speed: 120, color: '#c8f0ff', glow: true, life: 0.2, grav: 0 }); }
-    else if (this.def.armor && this.state !== 'stunned' && opts.how !== 'nape') mul = this.def.armor;
+    if (this.hardT > 0 && opts.how !== 'nape' && !opts.pierce) { mul = 0.1; g.fx.burst(this.x, this.y - 40, 4, { speed: 120, color: '#c8f0ff', glow: true, life: 0.2, grav: 0 }); }
+    else if (this.def.armor && this.state !== 'stunned' && opts.how !== 'nape' && !opts.pierce) mul = this.def.armor;
     if (this.def.nape && opts.how === 'nape') mul = 3;
     // Antares is always aloft; Boss.hurt ignores anything in the air, so take hits at its ground point
     const z = this.z; if (this.def.serpent) this.z = 0;

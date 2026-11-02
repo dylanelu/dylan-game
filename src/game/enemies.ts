@@ -109,7 +109,8 @@ export abstract class Enemy {
     this.vy += (ty - this.vy) * Math.min(1, k * dt);
   }
 
-  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+  /** `pierce`: the hit ignores armor (Inverted Spear, thunder spears) */
+  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
     if (this.dead || this.state === 'spawn' || this.ally) return;
     const crit = opts.crit || this.state === 'stunned';
     const amount = Math.round(dmg * (crit ? 2 : 1));
@@ -405,6 +406,8 @@ export class Shadow extends Enemy {
   target: Enemy | null = null;
   /** summoned by: a peer id, or null for the host's own player */
   owner: string | null = null;
+  /** hit damage, and how far from its owner it will go after a foe (BERU is stronger and stays close) */
+  power = 9; leash = Infinity;
   constructor(anim: Anim, x: number, y: number, animName = '') {
     super(x, y);
     this.anim = anim; this.ally = true; this.shadowAnim = animName; this.r = 8; this.spawnTime = 0.6;
@@ -419,12 +422,14 @@ export class Shadow extends Enemy {
     if (!this.target || this.target.dead) {
       let best = 1e9;
       this.target = null;
-      for (const e of g.enemies) if (!e.ally && !e.dead && e.state !== 'spawn') {
+      const own = g.ownerOf(this.owner);
+      for (const e of g.enemies) if (!e.ally && !e.dead && e.state !== 'spawn' && (this.leash === Infinity || Math.hypot(e.x - own.x, e.y - own.y) < this.leash)) {
         const d = Math.hypot(e.x - this.x, e.y - this.y);
         if (d < best) { best = d; this.target = e; }
       }
     }
     const lead = g.ownerOf(this.owner);
+    if (this.target && this.leash !== Infinity && Math.hypot(this.target.x - lead.x, this.target.y - lead.y) > this.leash * 1.3) this.target = null;
     const tx = this.target ? this.target.x : lead.x - lead.face * 26;
     const ty = this.target ? this.target.y : lead.y + 6;
     const d = this.dirTo(tx, ty);
@@ -432,7 +437,7 @@ export class Shadow extends Enemy {
     if (this.target && d.d < this.r + this.target.r + 6 && this.cd <= 0) {
       this.cd = 0.55;
       this.vx = d.dx * 160; this.vy = d.dy * 160;
-      this.target.hurt(g, 9, d.dx, d.dy, { knock: 40, how: 'shadow' });
+      this.target.hurt(g, this.power, d.dx, d.dy, { knock: 40, how: 'shadow' });
       g.fx.burst(this.target.x, this.target.y - 14, 5, { speed: 90, color: '#9a5cff', glow: true, grav: 0, life: 0.2 });
     } else if (d.d > 8) this.steer(d.dx * 95, d.dy * 95, dt, 6);
   }

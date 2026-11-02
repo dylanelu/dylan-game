@@ -258,10 +258,10 @@ export class Mob extends Enemy {
     }
   }
 
-  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
     if (this.state === 'under' || (this.state === 'fade' && this.stateT > 0.3)) return;   // underground / out of phase
-    // a kappa's shell turns aside anything coming at its face, unless it's reeling
-    if (this.def.arch === 'shielded' && this.state !== 'stunned' && dx * this.face < -0.3 && opts.how !== 'nape' && opts.how !== 'riposte') {
+    // a kappa's shell turns aside anything coming at its face, unless it's reeling (or the blade ignores shields)
+    if (this.def.arch === 'shielded' && this.state !== 'stunned' && dx * this.face < -0.3 && opts.how !== 'nape' && opts.how !== 'riposte' && !opts.pierce) {
       g.fx.burst(this.x + this.face * 10, this.y - 14, 5, { speed: 120, color: '#d8ffe8', glow: true, life: 0.2, grav: 0 });
       g.sfx('guard', this.x, 0.5);
       this.vx += dx * 20;

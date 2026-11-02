@@ -10,20 +10,22 @@ import { ArmoredTitan, ShadowKnight, Titan, Toji } from './bosses';
 import { Brute, Caster, Enemy, Ghoul, Shadow, type EnemyKind } from './enemies';
 import { Fx } from './fx';
 import { drawText, textWidth } from './font';
-import { ACTIVES, PASSIVES, RARITY, RELICS, rollLoot, WEAPONS, xpToNext, type Item } from './items';
+import { ACTIVES, PASSIVES, RARITY, RELICS, rollLoot, xpToNext, type Item } from './items';
 import { Night } from './night';
 import { clearSave } from './save';
 import { drawHud, hudHit } from './hud';
 import { TILE, World } from './world';
 import { PARRY_PERFECT, Player } from './player';
+import { hitMods, strikeDist, weaponIcon, WeaponWorld, type StrikeOpts, type StrikeShape } from './weapons';
 
 export type HitResult = 'hit' | 'parried' | 'guarded' | 'dodged' | 'ignored';
 
 export interface Bullet {
   x: number; y: number; vx: number; vy: number; r: number; dmg: number;
   team: 'enemy' | 'player'; heavy: boolean; life: number; age: number;
-  color: string; kind: 'orb' | 'dagger' | 'big'; pierce: number;
+  color: string; kind: 'orb' | 'dagger' | 'big' | 'arrow'; pierce: number;
   hits: Set<Enemy> | null; source: Enemy | null;
+  knock?: number;        // knockback on hit (default by kind)
   nid?: number;          // network id for enemy bullets (co-op)
   cosmetic?: boolean;    // another player's shot: drawn, never deals damage here
 }
@@ -76,6 +78,8 @@ export class Game {
   nextId = 0;
   private bulletSeq = 0;
   private mirroring = false;
+  /** weapon / ability world state: thunder spears, domains, telekinesis, swing fx (weapons.ts) */
+  wx: WeaponWorld;
   /** solo, or the co-op host: this machine owns enemies, bullets and spawning */
   get authority() { return !this.coop || this.coop.isHost; }
   private timers: { t: number; fn: () => void }[] = [];
@@ -95,6 +99,7 @@ export class Game {
     this.level = new World(A);
     this.fx = new Fx((x, y, c, n, sz) => this.level.splat(x, y, c, n, sz));
     this.night = new Night(this);
+    this.wx = new WeaponWorld(this);
     const start = this.night.dropPoint();
     this.player = new Player(start.x, start.y);
     this.cam.x = this.player.x - r.w / 2; this.cam.y = this.player.y - r.h / 2;
@@ -215,20 +220,22 @@ export class Game {
     return out;
   }
 
-  /** Who an enemy goes after: the nearest living player, local or remote. */
+  /** Who an enemy goes after: the nearest living player it can see, local or remote. With every hunter dead or
+   *  stealthed, the spot it last saw a stealthed one (a stand-in that never takes hits). */
   targetFor(e: { x: number; y: number }): Player {
-    let best = this.player, bd = this.player.state === 'dead' ? Infinity : Math.hypot(this.player.x - e.x, this.player.y - e.y);
+    let best = this.player, bd = this.player.state === 'dead' || this.player.stealth > 0 ? Infinity : Math.hypot(this.player.x - e.x, this.player.y - e.y);
     for (const p of this.remotes.values()) {
-      if (p.state === 'dead' || p.dissolved) continue;
+      if (p.state === 'dead' || p.dissolved || p.stealth > 0) continue;
       const d = Math.hypot(p.x - e.x, p.y - e.y);
       if (d < bd) { bd = d; best = p; }
     }
-    return best;
+    return bd === Infinity ? this.wx.lost() ?? best : best;
   }
 
   /** An enemy attack landing on `target`. Local targets resolve now; remote ones resolve on their own machine,
    *  and a parry there calls `onParried` here a moment later. */
   attack(target: Player, src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean }, onParried?: () => void): HitResult | 'pending' {
+    if (target === this.wx.decoy) return 'ignored';
     if (src instanceof Enemy) dmg = Math.round(dmg * src.dmgMul);
     if (target.peerId && this.coop) { this.coop.remoteAttack(target, src, dmg, o, onParried); return 'pending'; }
     const res = this.hitPlayer(src, dmg, o);
@@ -250,6 +257,8 @@ export class Game {
   private resolveHit(src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean; lag?: number }): HitResult {
     const p = this.player;
     if (p.state === 'dead') return 'ignored';
+    // MIKIRI COUNTER: a roll into a thrust or heavy swing steps on it, and counts as a perfect parry
+    if (p.state === 'roll' && o.kind === 'melee' && (o.heavy || o.counter) && p.relics.includes('mikiri') && this.wx.mikiri(src)) return 'parried';
     if (p.iframes > 0) {
       if (o.kind !== 'bullet') this.fx.text(p.x, p.y - Player.HEAD - 12, 'DODGE', '#9ad0ff', 1, 0.5);
       return 'dodged';
@@ -307,6 +316,7 @@ export class Game {
     p.mana = Math.min(p.maxMana, p.mana + 35);
     p.empowered = Math.min(6, p.empowered + 3);
     this.combo++; this.comboT = 3;
+    this.wx.onPerfectParry();
     this.audio.muffleFor(0.3, 900); this.audio.duck(0.35, 0.5);
     this.hitstop(heavy ? 0.15 : kind === 'bullet' ? 0.05 : 0.1);
     this.slowmo(heavy ? 0.45 : 0.28, heavy ? 0.25 : 0.35);
@@ -420,6 +430,8 @@ export class Game {
     if (!key) { this.toast('EMPTY SLOT', '#8a7ab8'); return; }
     const def = ACTIVES[key];
     if ((p.cooldowns[key] ?? 0) > 0) { this.sfx('whiff', p.x, 0.6); return; }
+    // the domain spends its own charge, not mana
+    if (key === 'domain' && p.domainCharge < 1) { this.fx.text(p.x, p.y - Player.HEAD - 10, 'NOT READY', '#8a7ab8', 1, 0.5); this.sfx('whiff', p.x, 0.6); return; }
     const cost = p.boundless ? 0 : def.cost;
     if (p.mana < cost) { this.fx.text(p.x, p.y - Player.HEAD - 10, 'NO MANA', '#8a7ab8', 1, 0.5); this.sfx('whiff', p.x, 0.6); return; }
     let ax: number, ay: number;
@@ -433,7 +445,8 @@ export class Game {
     p.mana -= cost; p.manaDelay = 0.5;
     p.cooldowns[key] = def.cooldown;
     if (key === 'summon') this.summon();
-    if (key === 'grapple') this.fireHook(ax, ay);
+    else if (key === 'grapple') this.fireHook(ax, ay);
+    else this.wx.useActive(key, slot, ax, ay, dragged);
   }
 
   /** Shadow Summon: two shadow soldiers rise beside you and fight for a while. In co-op the host raises them. */
@@ -533,9 +546,31 @@ export class Game {
   }
 
   /** Damage from this machine's player. The host applies it; a co-op client shows it now and reports it. */
-  damageEnemy(e: Enemy, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+  damageEnemy(e: Enemy, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
     e.hurt(this, dmg, dx, dy, opts);
-    if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg, dx, dy, kn: opts.knock ?? 60, how: opts.how, c: opts.crit ? 1 : 0 });
+    if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg, dx, dy, kn: opts.knock ?? 60, how: opts.how, c: opts.crit ? 1 : 0, p: opts.pierce ? 1 : 0 });
+  }
+
+  /** Every melee / blast hit from this machine's player resolves here: whatever the shape touches takes the hit
+   *  through damageEnemy (so a co-op client reports it), and `cutBullets` slices enemy bullets it touches.
+   *  Returns what was hit, for the attack's own juice. Target finding lives only here (PvP extends it). */
+  playerStrike(s: StrikeShape, dmg: number, o: StrikeOpts = {}): Enemy[] {
+    const p = this.player, hit: Enemy[] = [];
+    for (const e of this.enemies) {
+      if (e.ally || e.dead || e.state === 'spawn') continue;
+      const z = e instanceof Boss ? e.z : 0, d = strikeDist(s, e.x, e.y - e.height() - z, e.y - z, e.r + 3);
+      if (d < 0) continue;
+      let dx = s.k === 'line' ? Math.cos(s.a) : e.x - s.x, dy = s.k === 'line' ? Math.sin(s.a) : e.y - z - e.height() * 0.5 - s.y;
+      const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+      let knock = o.knock ?? 60;
+      if (o.tip !== undefined && d >= o.tip && e.heavy < 3) { dx = -dx; dy = -dy; knock = o.pull ?? 300; }   // dragged in
+      const titan = o.titan && (e.kind === 'titan' || e.kind === 'atitan' || e.kind === 'femaletitan') ? o.titan : 1;
+      const m = hitMods(this, e, dmg * titan * (e.state === 'stunned' ? p.critMul : 1), !!o.crit);
+      this.damageEnemy(e, m.dmg, dx, dy, { crit: m.crit, knock, how: o.how, pierce: o.pierce });
+      hit.push(e);
+    }
+    if (o.cutBullets) for (const b of this.bullets) if (b.team === 'enemy' && b.life > 0 && strikeDist(s, b.x, b.y, b.y, b.r) >= 0) this.wx.cutBullet(b);
+    return hit;
   }
 
   /** XP an enemy is worth when it dies near you. */
@@ -565,6 +600,7 @@ export class Game {
 
   onEnemyKilled(e: Enemy, how: string) {
     this.kills++;
+    this.wx.onKill(e);
     // every machine: XP if you were nearby, and your own loot roll
     const p = this.player;
     if (!e.ally && Math.hypot(p.x - e.x, p.y - e.y) < 700) this.gainXp(this.xpFor(e));
@@ -669,6 +705,7 @@ export class Game {
     else if (p.state !== 'roll') this.input.rollSwipe = null;
     p.update(this, sdt);
     this.updateHook(sdt);
+    this.wx.update(sdt);
     for (const rp of this.remotes.values()) rp.simRemote(this, sdt);
     this.coop?.tick(dt);
     if (p.state === 'dead') {
@@ -695,7 +732,7 @@ export class Game {
 
     // the host's AI cues (glints, telegraphs, roars, shakes) are mirrored to everyone else
     if (this.coop?.isHost) { this.mirroring = true; this.fx.emit = (op, args) => this.coop!.mirror(op, args); }
-    for (const e of this.enemies) e.update(this, sdt);
+    for (const e of this.enemies) e.update(this, sdt * this.wx.timeFor(e));   // a domain all but stops them
     this.night.update(sdt);
     this.mirroring = false; this.fx.emit = null;
     this.toastT += dt;
@@ -799,12 +836,12 @@ export class Game {
           const ex = e.x, ey = e.y - e.height() * 0.45 - z, rr = e.r + b.r + (e.boss ? 10 : 2);
           if (Math.abs(b.x - ex) < rr && Math.abs(b.y - ey) < e.height() * 0.5 + b.r) {
             const l = Math.hypot(b.vx, b.vy) || 1;
-            const knock = b.kind === 'big' ? 120 : 45;
-            const dmg = e.state === 'stunned' ? b.dmg * p.critMul : b.dmg;
-            e.hurt(this, dmg, b.vx / l, b.vy / l, { knock });
+            const knock = b.knock ?? (b.kind === 'big' ? 120 : 45);
+            const m = hitMods(this, e, e.state === 'stunned' ? b.dmg * p.critMul : b.dmg, false), dmg = m.dmg, crit = m.crit;
+            e.hurt(this, dmg, b.vx / l, b.vy / l, { knock, crit });
             // on a co-op client that was instant feedback; the host owns the real hp
-            if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg, dx: b.vx / l, dy: b.vy / l, kn: knock });
-            this.hitstop(b.kind === 'big' ? 0.035 : 0.012);
+            if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg, dx: b.vx / l, dy: b.vy / l, kn: knock, c: crit ? 1 : 0 });
+            this.hitstop(b.kind === 'big' || knock > 200 ? 0.035 : 0.012);
             b.hits?.add(e);
             if (b.pierce-- <= 0) { b.life = 0; break; }
           }
@@ -851,6 +888,7 @@ export class Game {
     clearSave();
     this.night = new Night(this);
     this.enemies = []; this.bullets = []; this.hazards = [];
+    this.wx.reset();
     const at = drop ?? this.night.dropPoint();
     const slot = this.player.slot;
     this.player = new Player(at.x + (Math.random() - 0.5) * 30, at.y + (Math.random() - 0.5) * 20);
@@ -905,6 +943,7 @@ export class Game {
     ui.clearRect(0, 0, W, H);
     this.level.draw(s, cx, cy, W + 2, H + 2, this.time);
     this.fx.drawTelegraphs(s, cx, cy);
+    this.wx.drawGround(s, cx, cy);
     this.drawLoot(s, gl, cx, cy);
 
     // depth-sorted entities
@@ -920,6 +959,7 @@ export class Game {
 
     this.fx.drawParticles(s, gl, cx, cy);
     this.drawBullets(gl, cx, cy);
+    this.wx.drawTop(s, gl, cx, cy);
     this.drawHazards(gl, cx, cy);
     this.fx.drawGlow(gl, cx, cy);
 
@@ -952,6 +992,7 @@ export class Game {
     this.fx.lights.length = 0;
     li.globalAlpha = 1;
     this.drawStorm(li, gl, cx, cy, W, H);
+    this.wx.drawLight(li, cx, cy, W, H);
 
     // world-space UI then HUD
     const ux = Math.round(camX), uy = Math.round(camY);
@@ -1015,7 +1056,7 @@ export class Game {
         gl.globalAlpha = 1;
       }
       const icon = it.kind === 'flask' ? this.A.tile('flask_red')
-        : it.kind === 'weapon' ? this.A.tile(WEAPONS[it.key].icon)
+        : it.kind === 'weapon' ? weaponIcon(this.A, it.key)
         : it.kind === 'passive' ? this.A.tile(PASSIVES[it.key].icon)
         : this.A.nt(it.kind === 'active' ? ACTIVES[it.key].icon : RELICS[it.key].icon, 0, 0, 24, 24, 1, true);
       const bob = Math.round(Math.sin(this.time * 3 + d.x) * 1.5 + d.z);
@@ -1053,7 +1094,13 @@ export class Game {
   private drawBullets(g: CanvasRenderingContext2D, cx: number, cy: number) {
     for (const b of this.bullets) {
       const x = Math.round(b.x - cx), y = Math.round(b.y - cy);
-      if (b.kind === 'dagger') {
+      if (b.kind === 'arrow') {
+        // long shaft with a bright head; gold when fully drawn
+        const l = Math.hypot(b.vx, b.vy) || 1, ux = b.vx / l, uy = b.vy / l;
+        g.fillStyle = b.color;
+        for (let i = 2; i < 12; i++) g.fillRect(Math.round(x - ux * i), Math.round(y - uy * i), 1, 1);
+        g.fillStyle = '#ffffff'; g.fillRect(x - 1, y - 1, 2, 2);
+      } else if (b.kind === 'dagger') {
         // streak along velocity
         const l = Math.hypot(b.vx, b.vy) || 1, ux = b.vx / l, uy = b.vy / l;
         g.fillStyle = b.color;

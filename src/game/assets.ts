@@ -25,9 +25,15 @@ export interface Assets {
 }
 
 export type NinjaSheet = 'TilesetFloor' | 'TilesetNature' | 'TilesetTowers' | 'TilesetWater' | 'NinjaDark' | 'RedSamuraiWalk' | 'RedSamuraiIdle'
-  | 'RedSamuraiAttack' | 'BlueSamuraiWalk' | 'BlueSamuraiIdle' | 'IconHook' | 'IconSummon' | 'IconMana';
+  | 'RedSamuraiAttack' | 'BlueSamuraiWalk' | 'BlueSamuraiIdle' | 'IconHook' | 'IconSummon' | 'IconMana'
+  // weapons + abilities: skill icons (24×24), held weapon sprites (blade up, grip down), attack / elemental FX strips
+  | 'IconDomain' | 'IconRuler' | 'IconExchange' | 'IconStealth' | 'IconMikiri' | 'IconBeru' | 'IconFists'
+  | 'WKatana' | 'WBow' | 'WLance2' | 'WWhip' | 'WWhipHand' | 'WSai'
+  | 'FxSlash' | 'FxCut' | 'FxCutX' | 'FxThunder' | 'FxExplosion';
 const NINJA: NinjaSheet[] = ['TilesetFloor', 'TilesetNature', 'TilesetTowers', 'TilesetWater', 'NinjaDark', 'RedSamuraiWalk', 'RedSamuraiIdle',
-  'RedSamuraiAttack', 'BlueSamuraiWalk', 'BlueSamuraiIdle', 'IconHook', 'IconSummon', 'IconMana'];
+  'RedSamuraiAttack', 'BlueSamuraiWalk', 'BlueSamuraiIdle', 'IconHook', 'IconSummon', 'IconMana',
+  'IconDomain', 'IconRuler', 'IconExchange', 'IconStealth', 'IconMikiri', 'IconBeru', 'IconFists',
+  'WKatana', 'WBow', 'WLance2', 'WWhip', 'WWhipHand', 'WSai', 'FxSlash', 'FxCut', 'FxCutX', 'FxThunder', 'FxExplosion'];
 const SHEET = 'assets/vendor/0x72/0x72_DungeonTilesetII_v1.3.png';
 const LIST = 'assets/vendor/0x72/tiles_list_v1.3';
 

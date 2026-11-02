@@ -8,12 +8,13 @@
 //     pb  someone's shot (cosmetic on other machines)       hz  boss shockwave
 //     pfx a remote perfect parry (cosmetic)                 dmg damage report → host
 //     cmd sandbox command → host
+//     ctl / dom / xsw / beru / wfx   weapons + abilities (weapons.ts: telekinesis → host, domain, swap, BERU, swing fx)
 //  targeted (sent immediately):
 //     atk  host asks the victim's machine to resolve an attack (so parry timing is judged where it was pressed)
 //     atkr the victim's answer; on 'parried' the host staggers / deflects the attacker
 
 import { Boss } from '../game/boss';
-import type { Enemy, EnemyKind } from '../game/enemies';
+import type { Enemy, EnemyKind, Shadow } from '../game/enemies';
 import type { Bullet, Game, HitResult } from '../game/game';
 import { Player } from '../game/player';
 import { MAX_PLAYERS, Net, type Wire } from './net';
@@ -80,7 +81,7 @@ export class Coop {
         x: r1(p.x), y: r1(p.y), vx: r1(p.vx), vy: r1(p.vy), f: p.face, s: p.state, t: r1(p.t),
         a: p.action?.name ?? null, at: r1(p.action?.t ?? 0), ax: r1(p.aimX), ay: r1(p.aimY), ah: r1(p.aimHold),
         hp: p.hp, mh: p.maxHp, if: r1(p.iframes), iv: r1(p.invuln), fl: p.flash > 0 ? 1 : 0, pf: r1(p.parryFlash), pa: r1(p.parryAngle),
-        d: p.dissolved ? 1 : 0, mz: p.muzzle > 0 ? 1 : 0, rc: r1(p.recoil),
+        d: p.dissolved ? 1 : 0, mz: p.muzzle > 0 ? 1 : 0, rc: r1(p.recoil), w: p.weapon.key, sh: p.stealth > 0 ? 1 : 0,
       });
     }
     if (this.isHost && this.net.peers.size) {
@@ -91,7 +92,7 @@ export class Coop {
           n: { t: r1(g.night.t), mb: [...g.night.activeMb], bs: g.night.bossSpawned ? 1 : 0 },
           e: g.enemies.filter((e) => !e.dead).map((e) => ({
             i: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), f: e.face, s: e.state, st: r1(e.stateT),
-            h: Math.round(e.hp), m: e.maxHp, fl: e.flash > 0 ? 1 : 0, a: e.shadowAnim,
+            h: Math.round(e.hp), m: e.maxHp, fl: e.flash > 0 ? 1 : 0, a: e.shadowAnim, ...(e.kind === 'shadow' ? { o: (e as Shadow).owner } : {}),
             ...(e instanceof Boss ? { z: r1(e.z), ph: e.phase, po: r1(e.posture) } : {}),
           })),
         });
@@ -140,6 +141,8 @@ export class Coop {
     if (s.fl) p.flash = 0.08;
     p.parryFlash = s.pf; p.parryAngle = s.pa; p.dissolved = !!s.d; p.recoil = Math.max(p.recoil, s.rc);
     if (s.mz) p.muzzle = 0.06;
+    if (s.w) p.weapon.key = s.w;
+    p.stealth = s.sh ? 1 : 0;
   }
 
   private applySnap(s: Wire) {
@@ -165,6 +168,7 @@ export class Coop {
       e.hp = w.h; e.maxHp = w.m;
       if (w.fl && e.flash <= 0) e.flash = 0.07;
       if (e instanceof Boss) { e.z = w.z; e.phase = w.ph; e.posture = w.po; e.introDone = true; }
+      if (w.o !== undefined) (e as Shadow).owner = w.o;
     }
     // enemies the host no longer has died there: play their death here
     for (const e of g.enemies) if (e.remote && !e.dead && !seen.has(e.id)) e.die(g, 'net');
@@ -206,7 +210,7 @@ export class Coop {
       case 'dmg': {
         if (!this.isHost) break;
         const e = g.enemies.find((x) => x.id === m.id);
-        if (e && !e.dead) e.hurt(g, m.dmg, m.dx, m.dy, { knock: m.kn, how: m.how, crit: !!m.c });
+        if (e && !e.dead) e.hurt(g, m.dmg, m.dx, m.dy, { knock: m.kn, how: m.how, crit: !!m.c, pierce: !!m.p });
         break;
       }
       case 'cmd': if (this.isHost) g.sandbox(m.act); break;
@@ -226,6 +230,7 @@ export class Coop {
         if (m.res === 'parried') cb?.();
         break;
       }
+      default: g.wx.onNet(m, from);
     }
   }
 

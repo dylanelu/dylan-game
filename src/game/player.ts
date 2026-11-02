@@ -1,6 +1,7 @@
 import type { Anim } from './assets';
 import type { Game } from './game';
 import { RARITY, WEAPONS, type Item } from './items';
+import { drawHeld, swingAngle, updateWeapon, weaponSlow, WeaponState } from './weapons';
 
 export const PARRY_PERFECT = 0.15;   // seconds after the press that count as a perfect parry
 export const PARRY_TOTAL = 0.3;      // after that it's a guard (chip damage, no reward)
@@ -54,6 +55,10 @@ export class Player {
   cooldowns: Record<string, number> = {};
   relics: string[] = [];
   get boundless() { return this.relics.includes('boundless'); }
+  /** per-weapon timers (combo, bow draw, thunder spear charges) live in weapons.ts */
+  ws = new WeaponState();
+  /** STEALTH time left (enemies lose you); DOMAIN EXPANSION charge 0..1 (parries and kills fill it) */
+  stealth = 0; domainCharge = 0;
   /** grappling hook in flight / pulling / returning */
   hook: { x: number; y: number; vx: number; vy: number; phase: 'fly' | 'pull' | 'back'; ax: number; ay: number; target: { x: number; y: number; r: number; dead?: boolean } | null; t: number; dist: number } | null = null;
   /** summed strength of a passive (rarity scales it); 0 when not owned */
@@ -151,6 +156,7 @@ export class Player {
       if (this.state === 'parry') speed *= 0.35;
       if (this.state === 'recover') speed *= 0.45;
       if (this.action?.name === 'riposte') speed *= 0.3;
+      speed *= weaponSlow(this);
       const tx = mv.x * speed, ty = mv.y * speed;
       const accel = Math.hypot(mv.x, mv.y) > 0.1 ? 22 : 16;  // snappy start, slightly softer stop
       const wasStill = Math.hypot(this.vx, this.vy) < 20;
@@ -193,7 +199,7 @@ export class Player {
     if (this.boundless) this.mana = this.maxMana;
     for (const k in this.cooldowns) this.cooldowns[k] = Math.max(0, this.cooldowns[k] - dt);
 
-    if (g.input.firing && this.state !== 'roll' && this.action?.name !== 'riposte' && this.fireCd <= 0) this.fire(g);
+    updateWeapon(g, this, dt);
     this.updateBlade(dt);
   }
 
@@ -227,6 +233,8 @@ export class Player {
   /** Where the dagger wants to point this frame; eased so it swings instead of teleporting. */
   updateBlade(dt: number) {
     let target: number, rate = 22;
+    const sw = swingAngle(this);
+    if (sw !== null) { this.bladeA = sw; return; }
     const fwd = this.face > 0 ? 0 : Math.PI;
     if (this.state === 'parry' || this.parryFlash > 0) {
       // guard: blade raised across the front, angled toward the threat
@@ -280,18 +288,18 @@ export class Player {
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
     // tiny spread keeps streams lively without hurting aim
     const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.05;
-    const speed = emp ? 520 : W.speed, big = emp || W.big;
+    const speed = emp ? 520 : W.speed ?? 440, big = emp || !!W.big;
     const dmg = (emp ? Math.max(22, W.dmg * 2.2) : W.dmg) * this.dmgMul;
-    const n = emp ? 1 : W.shots;
+    const n = emp ? 1 : W.shots ?? 1;
     for (let i = 0; i < n; i++) {
-      const ai = a + (i - (n - 1) / 2) * W.spread;
+      const ai = a + (i - (n - 1) / 2) * (W.spread ?? 0);
       const lanes = W.parallel && !emp ? [-W.parallel / 2, W.parallel / 2] : [0];
       for (const off of lanes) {
         const ox = -Math.sin(ai) * off, oy = Math.cos(ai) * off;
         g.bullets.push({
           x: b.tx + ox, y: b.ty + oy, vx: Math.cos(ai) * speed, vy: Math.sin(ai) * speed,
-          r: big ? 5 : 3, dmg, team: 'player', heavy: false, life: emp ? 0.85 : W.life, age: 0,
-          color: emp ? '#d8a8ff' : W.color, kind: big ? 'big' : 'dagger', pierce: emp ? 3 : W.pierce, hits: new Set(), source: null,
+          r: big ? 5 : 3, dmg, team: 'player', heavy: false, life: emp ? 0.85 : W.life ?? 0.8, age: 0,
+          color: emp ? '#d8a8ff' : W.color, kind: big ? 'big' : 'dagger', pierce: emp ? 3 : W.pierce ?? 0, hits: new Set(), source: null,
         });
         g.onShot(g.bullets[g.bullets.length - 1]);
       }
@@ -348,7 +356,9 @@ export class Player {
 
     const blink = this.invuln > 0 && this.state !== 'dead' && Math.floor(this.invuln * 20) % 2 === 0;
     ctx.save();
-    ctx.globalAlpha = blink ? 0.45 : 1;
+    // stealth: a faint heat-shimmer, so you (and teammates) can still find yourself
+    const vis = this.stealth > 0 ? 0.2 + Math.sin(g.time * 9) * 0.04 : 1;
+    ctx.globalAlpha = (blink ? 0.45 : 1) * vis;
     ctx.translate(x, y);
     if (Math.abs(lean) > 0.01) ctx.transform(1, 0, -lean, 1, 0, 0);      // shear about the feet
     if (this.face < 0) ctx.scale(-1, 1);
@@ -393,6 +403,10 @@ export class Player {
 
   private drawBlade(g: Game, ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D, cx: number, cy: number) {
     if (this.state === 'dead') return;
+    const vis = this.stealth > 0 ? 0.2 : 1;
+    ctx.globalAlpha = vis;
+    // every other weapon type is drawn from its own sprite
+    if (drawHeld(g, this, ctx, glow, cx, cy, vis)) { ctx.globalAlpha = 1; return; }
     const D = g.A.dagger, b = this.blade();
     const gx = Math.round(b.gx - cx), gy = Math.round(b.gy - cy);
     const bright = this.parryPhase === 'perfect' || this.parryFlash > 0 || this.action?.name === 'riposte';
@@ -401,8 +415,9 @@ export class Player {
     ctx.rotate(b.a + Math.PI / 2);                     // sprite blade points up
     ctx.drawImage(bright ? D.flash : D.img, -Math.floor(D.w / 2), -D.h + 4);
     ctx.restore();
+    ctx.globalAlpha = 1;
     // edge glow so the blade blooms
-    glow.globalAlpha = bright ? 1 : 0.55;
+    glow.globalAlpha = (bright ? 1 : 0.55) * vis;
     glow.fillStyle = bright ? '#f4ecff' : '#9a5cff';
     for (let i = 6; i <= 20; i += 2) glow.fillRect(Math.round(gx + Math.cos(b.a) * i), Math.round(gy + Math.sin(b.a) * i), 1, 1);
     glow.globalAlpha = 1;

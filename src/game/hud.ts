@@ -1,6 +1,7 @@
 import { Boss } from './boss';
 import { HERO_LOOKS } from './assets';
 import { ACTIVES, PASSIVES, RARITY, RELICS, WEAPONS, xpToNext } from './items';
+import { weaponIcon } from './weapons';
 import { BOSS_AT } from './night';
 import { drawText, textWidth } from './font';
 import type { Game } from './game';
@@ -32,15 +33,17 @@ export function drawHud(g: Game, ctx: CanvasRenderingContext2D) {
   // level + xp, then gear icons
   drawText(ctx, `LV ${p.level}`, 102, 15, '#ffd84a');
   bar(ctx, 8, 28, 70, 2, p.xp / xpToNext(p.level), '#ffd84a');
-  const icons = [{ name: WEAPONS[p.weapon.key].icon, r: p.weapon.rarity }, ...p.passives.map((q) => ({ name: PASSIVES[q.key].icon, r: q.rarity }))];
+  const icons = [{ img: weaponIcon(g.A, p.weapon.key), r: p.weapon.rarity }, ...p.passives.map((q) => ({ img: g.A.tile(PASSIVES[q.key].icon), r: q.rarity }))];
   p.relics.forEach((k, i) => { const ic = g.A.nt(RELICS[k].icon, 0, 0, 24, 24, 1, true); ctx.drawImage(ic, 8 + (icons.length + i) * 18 - 4, 30); });
   icons.forEach((ic, i) => {
     const x = 8 + i * 18, y = 34;
     ctx.fillStyle = '#07060c'; ctx.fillRect(x - 1, y - 1, 18, 18);
     ctx.fillStyle = RARITY[ic.r].color; ctx.fillRect(x, y + 15, 16, 1);
-    const t = g.A.tile(ic.name);
+    const t = ic.img;
     ctx.drawImage(t, 0, 0, t.width, t.height, x + 8 - Math.min(16, t.width / 2) / 2, y + 16 - Math.min(16, t.height / 2), Math.min(16, t.width / 2), Math.min(16, t.height / 2));
   });
+  // thunder spear charges under the weapon icon
+  if (WEAPONS[p.weapon.key]?.type === 'thunder') for (let i = 0; i < 3; i++) { ctx.fillStyle = i < p.ws.spears ? '#ffd84a' : '#3a3155'; ctx.fillRect(9 + i * 5, 52, 3, 2); }
 
   // night clock + storm warning
   const n = g.night, left = Math.max(0, BOSS_AT - n.t);
@@ -245,6 +248,14 @@ function drawItemButtons(g: Game, ctx: CanvasRenderingContext2D, W: number, H: n
       // cooldown sweep and mana shortfall
       const cd = (p.cooldowns[key!] ?? 0) / def.cooldown;
       if (cd > 0) { ctx.fillStyle = 'rgba(7,6,12,0.7)'; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + cd * Math.PI * 2); ctx.fill(); }
+      else if (key === 'domain') {
+        // the domain's charge meter: dim until full, then it pulses
+        const ch = p.domainCharge;
+        if (ch < 1) { ctx.fillStyle = 'rgba(30,8,20,0.65)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); }
+        ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.globalAlpha = ch < 1 ? 0.95 : 0.6 + 0.4 * Math.sin(g.time * 8);
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 2, -Math.PI / 2, -Math.PI / 2 + ch * Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.95;
+      }
       else if (!p.boundless && p.mana < def.cost) { ctx.fillStyle = 'rgba(30,20,60,0.6)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); }
       ctx.strokeStyle = cd > 0 ? '#3a3155' : def.color; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
