@@ -10,6 +10,7 @@ import { Fx } from './fx';
 import { drawText, textWidth } from './font';
 import { ACTIVES, PASSIVES, RARITY, RELICS, rollLoot, WEAPONS, xpToNext, type Item } from './items';
 import { Night } from './night';
+import { clearSave } from './save';
 import { drawHud, hudHit } from './hud';
 import { TILE, World } from './world';
 import { PARRY_PERFECT, Player } from './player';
@@ -827,6 +828,7 @@ export class Game {
    *  In co-op the host decides the drop point and tells everyone. */
   restartNight(drop?: { x: number; y: number }) {
     if (!this.authority && !drop) { this.coop?.push({ t: 'restartReq' }); return; }
+    clearSave();
     this.night = new Night(this);
     this.enemies = []; this.bullets = []; this.hazards = [];
     const at = drop ?? this.night.dropPoint();

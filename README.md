@@ -31,7 +31,8 @@ About 10 minutes on one big fixed outdoor map (the same layout every run), Fortn
 4. At 9:00 the gate opens: anyone outside is pulled in and the Crimson Warden rises. Kill it to clear the night.
 
 Enemy levels are hidden. The marker over an enemy says how bad it is for you: white is a fair fight, red is well
-above you, a purple skull means you will die. Solo gets one revival per night; in co-op you come back beside a teammate.
+above you, a purple skull means you will die. Solo gets one revival per night; in co-op you come back beside a teammate. Refreshing the page resumes the night
+where you were (saved in the browser); a co-op client gets their hunter back and rejoins the host's night.
 
 ### Items
 

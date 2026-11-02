@@ -3,6 +3,7 @@ import { Input } from './engine/input';
 import { Renderer } from './engine/renderer';
 import { loadAssets } from './game/assets';
 import { Game } from './game/game';
+import { restoreNight, saveNight } from './game/save';
 import { Coop } from './net/coop';
 import { makeRoomCode } from './net/net';
 
@@ -15,6 +16,11 @@ input.onFirstGesture(() => audio.unlock());
 
 const game = new Game(renderer, input, audio, await loadAssets());
 (window as unknown as { game: Game }).game = game;   // handy for debugging in the console
+
+// a refresh picks the night back up where you were (see src/game/save.ts)
+if (restoreNight(game)) game.banner('NIGHT RESUMED', '#b26bff', 2);
+setInterval(() => saveNight(game), 2000);
+addEventListener('pagehide', () => saveNight(game));
 
 // sandbox panel
 const panel = document.getElementById('panel')!;
@@ -44,7 +50,7 @@ addEventListener('keydown', (e) => {
 });
 // hidden tab or pane: pause and silence it, so a game you can't see never keeps playing
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) game.setPaused(true);
+  if (document.hidden) { game.setPaused(true); saveNight(game); }
   audio.setHidden(document.hidden);
 });
 if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || innerWidth < 700) panel.classList.add('collapsed');

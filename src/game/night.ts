@@ -1,6 +1,7 @@
 import type { EnemyKind } from './enemies';
 import type { Game } from './game';
 import { itemName, RARITY, rollLoot, type Item } from './items';
+import type { NightSave } from './save';
 import { TILE, type Room } from './world';
 
 // One night, ~10 minutes. Drop in, clear camps and mini-bosses to level up and find gear while the shadow
@@ -184,6 +185,29 @@ export class Night {
         this.spill(rollLoot('chest'), c.x, c.y - 4);
       }
     }
+  }
+
+  save(): NightSave {
+    return {
+      t: Math.round(this.t * 10) / 10,
+      cleared: [...this.camps.values()].filter((c) => c.state === 'cleared').map((c) => c.room.id),
+      activeMb: [...this.activeMb], bossSpawned: this.bossSpawned, revives: this.revives, said: [...this.said],
+      chests: this.chests.filter((c) => !c.opened).map(({ id, x, y }) => ({ id, x, y })),
+      drops: this.drops.map((d) => ({ x: Math.round(d.x), y: Math.round(d.y), item: d.item })),
+    };
+  }
+
+  /** Resume a saved night. Camps that were mid-fight go back to sleep; a gate that was already open opens again. */
+  load(s: NightSave) {
+    this.t = s.t; this.revives = s.revives; this.said = new Set(s.said);
+    this.activeMb = new Set(s.activeMb);
+    for (const id of s.cleared) { const c = this.camps.get(id); if (c) c.state = 'cleared'; }
+    this.chests = s.chests.map((c) => ({ ...c, opened: false, t: 0 }));
+    this.drops = s.drops.map((d) => ({ ...d, z: 0, vz: 0, vx: 0, vy: 0, t: 1 }));
+    this.g.nextId = Math.max(this.g.nextId, ...s.chests.map((c) => c.id));
+    // the final boss isn't saved: let the director raise it again
+    this.bossSpawned = false;
+    if (s.bossSpawned) this.said.delete('soon');
   }
 
   /** Short label for a loot pickup toast. */

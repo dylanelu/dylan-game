@@ -16,6 +16,13 @@ interface GunTouch { sx: number; sy: number; t0: number; rolled: boolean }
 const FLICK_PX = 26;      // css px a gun finger must travel...
 const FLICK_MS = 200;     // ...within this long to count as a roll
 
+/** The physical key. Some setups (remote desktops, a few Linux / VM keyboards) report no `code`; fall back to
+ *  the typed letter so WASD still works there. */
+function codeOf(e: KeyboardEvent) {
+  if (e.code && e.code !== 'Unidentified') return e.code;
+  return /^[a-z]$/i.test(e.key) ? 'Key' + e.key.toUpperCase() : e.key;
+}
+
 export class Input {
   move = { x: 0, y: 0 };
   firing = false;
@@ -36,7 +43,11 @@ export class Input {
 
   constructor(private canvas: HTMLCanvasElement, private r: Renderer) {
     addEventListener('keydown', (e) => this.keyDown(e));
-    addEventListener('keyup', (e) => { this.keys.delete(e.code); this.updateKeys(); });
+    addEventListener('keyup', (e) => {
+      // macOS sends no keyups for keys released while Cmd is held, so a Cmd-shortcut could leave one stuck
+      if (e.key === 'Meta') this.keys.clear(); else this.keys.delete(codeOf(e));
+      this.updateKeys();
+    });
     addEventListener('blur', () => { this.keys.clear(); this.mouseDown = false; this.updateKeys(); this.firing = false; });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => this.mouse(e, true));
@@ -57,17 +68,21 @@ export class Input {
 
   private keyDown(e: KeyboardEvent) {
     this.gesture();
+    if (e.metaKey || e.ctrlKey || e.altKey) return;   // browser / OS shortcuts aren't game input
+    const code = codeOf(e);
+    // keep the browser from acting on game keys: Firefox's find-as-you-type would open its find bar on the
+    // first letter and swallow the rest, arrows and Space would scroll
+    if (/^(Key[A-Z]|Digit\d|Arrow\w+|Space|Escape)$/.test(code) && !(e.target instanceof HTMLInputElement)) e.preventDefault();
     if (e.repeat) return;
-    this.keys.add(e.code);
-    if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-      e.preventDefault();
+    this.keys.add(code);
+    if (code === 'Space' || code === 'ShiftLeft' || code === 'ShiftRight') {
       this.events.push({ type: 'roll', dx: 0, dy: 0 });
-    } else if (e.code === 'KeyK') {
+    } else if (code === 'KeyK') {
       this.events.push({ type: 'parry' });
-    } else if (e.code === 'KeyQ' || e.code === 'KeyE') {
-      this.events.push({ type: 'item', slot: e.code === 'KeyQ' ? 0 : 1, dx: 0, dy: 0, dragged: false });
+    } else if (code === 'KeyQ' || code === 'KeyE') {
+      this.events.push({ type: 'item', slot: code === 'KeyQ' ? 0 : 1, dx: 0, dy: 0, dragged: false });
     } else {
-      this.events.push({ type: 'key', key: e.code });
+      this.events.push({ type: 'key', key: code });
     }
     this.device = 'mouse';
     this.updateKeys();
