@@ -275,7 +275,7 @@ export class Menu {
   // ------------------------------------------------------------------ views
 
   private mainView() {
-    const title = pix('SHADOW GATE', Math.max(4, Math.min(8, Math.floor((Math.min(innerWidth, 520) - 40) / 46))), '#e8dcff');
+    const title = pix("DYLAN'S GAME", Math.max(4, Math.min(8, Math.floor((Math.min(innerWidth, 520) - 40) / 48))), '#e8dcff');
     // hero preview: idle animation in the chosen color
     const hero = h('canvas.hero') as HTMLCanvasElement;
     hero.width = 32; hero.height = 56;

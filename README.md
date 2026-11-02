@@ -1,4 +1,4 @@
-# Shadow Gate
+# Dylan's Game
 
 A top-down pixel-art action game for phone and desktop: a Solo Leveling style hunter clearing a gate, with
 Sekiro parries, Elden Ring rolls and bullet-hell bosses, structured like one Nightreign night. Static site, no backend.
