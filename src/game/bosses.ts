@@ -19,7 +19,10 @@ abstract class AreaBoss extends Boss {
   protected chaseSpeed = 50;
   /** where it guards; it won't chase you across the map */
   homeX: number; homeY: number;
-  static readonly LEASH = 520;
+  /** a boss only gives up after you've been well clear of its ground for a while */
+  static readonly LEASH = 760;
+  static readonly GIVE_UP = 4;
+  leashT = 0; returning = false; returnT = 0;
 
   constructor(g: Game, x: number, y: number) { super(g, x, y); this.homeX = x; this.homeY = y; }
 
@@ -29,15 +32,26 @@ abstract class AreaBoss extends Boss {
     const p = g.targetFor(this), d = this.dirTo(p.x, p.y);
     this.postureIdle += dt;
     if (this.postureIdle > 2.5) this.posture = Math.max(0, this.posture - 7 * dt);
+    const away = Math.hypot(p.x - this.homeX, p.y - this.homeY) > AreaBoss.LEASH;
+    this.leashT = away ? this.leashT + dt : 0;
+    if (!away) this.returning = false;
+    else if (this.leashT > AreaBoss.GIVE_UP && !this.returning && (this.state === 'chase' || this.state === 'recover' || this.state === 'idle')) {
+      this.returning = true; this.returnT = 0; this.setState('chase');
+      g.fx.text(this.x, this.y - this.height() - 8, 'RETREATS', '#8a7ab8', 1.5, 1);
+    }
     if (this.state === 'idle' || this.state === 'chase') {
       if (!this.introDone) { this.introDone = true; g.banner(this.name, '#ff6680', 2.2); g.sfx('roar', this.x); g.shake(0.5); }
       if (this.posture >= this.maxPosture) this.posture = 0;
-      if (Math.hypot(p.x - this.homeX, p.y - this.homeY) > AreaBoss.LEASH) {
-        // target left its ground: walk back and recover
+      if (this.returning) {
+        // you left its ground: it walks home, and only once there does it recover
         const h = this.dirTo(this.homeX, this.homeY);
-        if (h.d > 30) { this.steer(h.dx * this.chaseSpeed * 1.6, h.dy * this.chaseSpeed * 1.6, dt, 4); if (Math.abs(h.dx) > 0.15) this.face = Math.sign(h.dx); }
-        else this.steer(0, 0, dt);
-        this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.15 * dt); this.posture = 0;
+        this.returnT += dt;
+        if (h.d > 30 && this.returnT > 3) {
+          // walls in the way: slip back home in a puff of smoke rather than path around them
+          const poof = (x: number, y: number) => g.fx.burst(x, y - 20, 18, { speed: 70, colors: ['#1a1424', '#3a2a4a', '#5a4a6a'], life: 0.5, grav: -20 });
+          poof(this.x, this.y); this.x = this.homeX; this.y = this.homeY; this.vx = this.vy = 0; poof(this.x, this.y);
+        } else if (h.d > 30) { this.steer(h.dx * this.chaseSpeed * 1.4, h.dy * this.chaseSpeed * 1.4, dt, 4); if (Math.abs(h.dx) > 0.15) this.face = Math.sign(h.dx); }
+        else { this.steer(0, 0, dt); this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.05 * dt); this.posture = 0; }
         this.stateT = 0;
         return;
       }
