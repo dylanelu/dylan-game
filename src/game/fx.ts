@@ -26,7 +26,7 @@ export class Fx {
   /** co-op host: set while enemies think, so their visual cues are mirrored to other players */
   emit: ((op: string, args: unknown[]) => void) | null = null;
 
-  constructor(private decalCtx: CanvasRenderingContext2D) {}
+  constructor(private paint: (x: number, y: number, color: string, n: number, size: number) => void) {}
 
   burst(x: number, y: number, n: number, o: Partial<Particle> & { speed?: number; spread?: number; angle?: number; colors?: string[] } = {}) {
     this.emit?.('burst', [x, y, n, o]);
@@ -78,13 +78,7 @@ export class Fx {
 
   splat(x: number, y: number, color: string, n = 6, size = 5) {
     this.emit?.('splat', [x, y, color, n, size]);
-    const g = this.decalCtx;
-    g.fillStyle = color;
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, d = Math.random() * size;
-      const s = 1 + Math.floor(Math.random() * 3);
-      g.fillRect(Math.round(x + Math.cos(a) * d * 1.4), Math.round(y + Math.sin(a) * d * 0.7), s, Math.max(1, s - 1));
-    }
+    this.paint(x, y, color, n, size);
   }
 
   update(dt: number) {

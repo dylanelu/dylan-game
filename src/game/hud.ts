@@ -1,5 +1,7 @@
 import { Boss } from './boss';
 import { HERO_LOOKS } from './assets';
+import { PASSIVES, RARITY, WEAPONS, xpToNext } from './items';
+import { BOSS_AT } from './night';
 import { drawText, textWidth } from './font';
 import type { Game } from './game';
 
@@ -24,6 +26,63 @@ export function drawHud(g: Game, ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = p.rollCd > 0 ? '#3a3155' : '#9ad0ff';
   ctx.fillRect(82, 16, 3, 3);
   for (let i = 0; i < p.empowered; i++) { ctx.fillStyle = '#d8a8ff'; ctx.fillRect(8 + i * 5, 22, 3, 3); }
+
+  // level + xp, then gear icons
+  drawText(ctx, `LV ${p.level}`, 102, 15, '#ffd84a');
+  bar(ctx, 8, 28, 70, 2, p.xp / xpToNext(p.level), '#ffd84a');
+  const icons = [{ name: WEAPONS[p.weapon.key].icon, r: p.weapon.rarity }, ...p.passives.map((q) => ({ name: PASSIVES[q.key].icon, r: q.rarity }))];
+  icons.forEach((ic, i) => {
+    const x = 8 + i * 18, y = 34;
+    ctx.fillStyle = '#07060c'; ctx.fillRect(x - 1, y - 1, 18, 18);
+    ctx.fillStyle = RARITY[ic.r].color; ctx.fillRect(x, y + 15, 16, 1);
+    const t = g.A.tile(ic.name);
+    ctx.drawImage(t, 0, 0, t.width, t.height, x + 8 - Math.min(16, t.width / 2) / 2, y + 16 - Math.min(16, t.height / 2), Math.min(16, t.width / 2), Math.min(16, t.height / 2));
+  });
+
+  // night clock + storm warning
+  const n = g.night, left = Math.max(0, BOSS_AT - n.t);
+  const clock = n.bossSpawned ? 'THE GATE IS OPEN' : `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+  drawText(ctx, clock, Math.round((W - textWidth(clock, 2)) / 2), g.coop ? 14 : 6, n.bossSpawned ? '#ff3355' : '#e8dcff', 2);
+  if (n.closing) {
+    const warn = 'SHADOW CLOSING';
+    if (Math.floor(g.time * 2) % 2) drawText(ctx, warn, Math.round((W - textWidth(warn)) / 2), g.coop ? 28 : 20, '#b26bff');
+  }
+  if (n.outside(p.x, p.y) && p.state !== 'dead') {
+    const warn = 'YOU ARE IN THE SHADOW';
+    drawText(ctx, warn, Math.round((W - textWidth(warn)) / 2), Math.round(H * 0.62), '#ff6680');
+  }
+
+  // minimap
+  {
+    const M = Math.min(96, Math.round(W * 0.22)), mx = W - M - 8, my = H - M - 8, sc = M / g.level.width;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#07060c'; ctx.fillRect(mx - 2, my - 2, M + 4, M + 4);
+    ctx.drawImage(g.level.minimap, mx, my, M, M);
+    ctx.globalAlpha = 1;
+    const cxm = mx + n.cx * sc, cym = my + n.cy * sc;
+    ctx.save(); ctx.beginPath(); ctx.rect(mx, my, M, M); ctx.clip();
+    ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cxm, cym, n.stormR * sc, 0, Math.PI * 2); ctx.stroke();
+    if (n.nextR < n.stormR - 1) { ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(cxm, cym, n.nextR * sc, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+    for (const r of g.level.rooms) {
+      if (r.kind === 'miniboss' && n.activeMb.has(r.id)) { ctx.fillStyle = '#ff3355'; ctx.fillRect(Math.round(mx + r.cx * sc) - 1, Math.round(my + r.cy * sc) - 1, 3, 3); }
+    }
+    ctx.fillStyle = n.bossSpawned ? '#ff3355' : '#ffd84a'; ctx.fillRect(Math.round(cxm) - 2, Math.round(cym) - 2, 4, 4);
+    for (const c of n.chests) if (!c.opened) { ctx.fillStyle = '#ffc83a'; ctx.fillRect(Math.round(mx + c.x * sc), Math.round(my + c.y * sc), 1, 1); }
+    for (const pl of [...g.remotes.values(), p]) {
+      ctx.fillStyle = pl === p ? '#ffffff' : HERO_LOOKS[pl.slot].trim;
+      ctx.fillRect(Math.round(mx + pl.x * sc) - 1, Math.round(my + pl.y * sc) - 1, 3, 3);
+    }
+    ctx.restore();
+  }
+
+  // loot toast
+  if (g.toastT < 2.2) {
+    const a = g.toastT < 0.15 ? g.toastT / 0.15 : g.toastT > 1.8 ? (2.2 - g.toastT) / 0.4 : 1;
+    ctx.globalAlpha = a;
+    drawText(ctx, g.toastText, Math.round((W - textWidth(g.toastText)) / 2), Math.round(H * 0.72), g.toastColor);
+    ctx.globalAlpha = 1;
+  }
   if (g.god) drawText(ctx, 'GOD', 102, 8, '#ffd84a');
   if (g.combo > 1) drawText(ctx, `${g.combo} PARRY CHAIN`, 8, 28, '#e8dcff');
 
@@ -73,6 +132,23 @@ export function drawHud(g: Game, ctx: CanvasRenderingContext2D) {
       : ['WASD MOVE   LMB SHOOT   RMB PARRY   SPACE ROLL', '1-5 SPAWN   4 BOSS   G GOD   H HITBOX'];
     lines.forEach((l, i) => drawText(ctx, l, (W - textWidth(l)) / 2, H - 52 + i * 8, '#8a7ab8'));
     ctx.globalAlpha = 1;
+  }
+
+  // end of the night
+  if (n.ended) {
+    const k = Math.min(1, n.endT / 1.2);
+    ctx.fillStyle = `rgba(7,6,12,${0.65 * k})`; ctx.fillRect(0, 0, W, H);
+    const title = n.ended === 'won' ? 'GATE CLEARED' : 'THE NIGHT CLAIMS YOU', sc = W > 420 ? 4 : 2;
+    ctx.globalAlpha = k;
+    drawText(ctx, title, Math.round((W - textWidth(title, sc)) / 2), Math.round(H * 0.32), n.ended === 'won' ? '#ffd84a' : '#ff3355', sc);
+    const stats = `LEVEL ${p.level}   KILLS ${g.kills}   ${Math.floor(n.t / 60)}:${String(Math.floor(n.t % 60)).padStart(2, '0')}`;
+    drawText(ctx, stats, Math.round((W - textWidth(stats)) / 2), Math.round(H * 0.32) + 6 * sc + 10, '#e8dcff');
+    if (n.endT > 1.5) {
+      const again = g.input.device === 'touch' ? 'TAP TO FACE ANOTHER NIGHT' : 'PRESS R TO FACE ANOTHER NIGHT';
+      if (Math.floor(g.time * 2) % 2) drawText(ctx, again, Math.round((W - textWidth(again)) / 2), Math.round(H * 0.32) + 6 * sc + 26, '#8a7ab8');
+    }
+    ctx.globalAlpha = 1;
+    return;
   }
 
   // pause overlay

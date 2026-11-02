@@ -20,6 +20,10 @@ export abstract class Enemy {
   id = 0;
   remote = false;
   netX = 0; netY = 0;
+  /** hidden level: scales hp and damage; shown to players only as a threat color */
+  level = 1;
+  elite = false;
+  get dmgMul() { return 1 + 0.11 * (this.level - 1); }
   /** idle anim name, used to rebuild this enemy's shadow soldier on other machines */
   shadowAnim = '';
   abstract kind: EnemyKind;
@@ -322,9 +326,12 @@ export class Brute extends Enemy {
   cd = 1;
   attack: 'swing' | 'slam' = 'swing';
   ax = 0; ay = 0;
-  constructor(g: Game, x: number, y: number) {
+  constructor(g: Game, x: number, y: number, elite = false) {
     super(x, y);
-    this.anim = g.A.anim('ogre_run_anim'); this.idleAnim = g.A.anim('ogre_idle_anim'); this.shadowAnim = 'ogre_idle_anim';
+    // mini-boss "warlord" is the same brute, half again as big
+    const s = elite ? 3 : 2;
+    this.anim = g.A.anim('ogre_run_anim', s); this.idleAnim = g.A.anim('ogre_idle_anim', s); this.shadowAnim = 'ogre_idle_anim';
+    this.elite = elite;
     this.hp = this.maxHp = 170; this.r = 15; this.heavy = 3.5; this.jitter = 1; this.stunTime = 1.3; this.spawnTime = 1;
     this.baseSpeed = 38;
   }
@@ -367,6 +374,8 @@ export class Brute extends Enemy {
           } else {
             g.sfx('slam', this.x); g.shake(0.45);
             this.punch(6);
+            // the warlord's slam also throws a ring of heavy orbs
+            if (this.elite) for (let i = 0; i < 14; i++) g.enemyBullet(this.ax, this.ay - 10, (i / 14) * Math.PI * 2, 95, { heavy: i % 2 === 0, r: i % 2 ? 4 : 6, color: i % 2 ? '#ff4a6a' : '#ff2244', source: this });
             g.fx.ring(this.ax, this.ay, 62, '#ff3355', 0.35, 3);
             g.fx.burst(this.ax, this.ay, 22, { speed: 150, colors: ['#3a3155', '#5a4a7a'], size: 2, life: 0.6 });
             g.fx.light(this.ax, this.ay, 120, '#ff4422', 1);

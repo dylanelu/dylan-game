@@ -1,5 +1,6 @@
 import type { Anim } from './assets';
 import type { Game } from './game';
+import { RARITY, WEAPONS, type Item } from './items';
 
 export const PARRY_PERFECT = 0.15;   // seconds after the press that count as a perfect parry
 export const PARRY_TOTAL = 0.3;      // after that it's a guard (chip damage, no reward)
@@ -9,8 +10,6 @@ const ROLL_IFRAMES = 0.24;
 const ROLL_SPEED = 330;
 const ROLL_COOLDOWN = 0.18;
 const SPEED = 128;
-const FIRE_INTERVAL = 0.13;
-const SHOT_COST = 7;
 const AIM_HOLD = 0.45;               // keep the blade aimed this long after the last shot
 const RIPOSTE_TIME = 0.32;
 const HIT_TIME = 0.28;
@@ -46,6 +45,17 @@ export class Player {
   dissolved = false;
   /** current sprite + its feet anchor, for afterimages and the death dissolve */
   sprite: { img: HTMLCanvasElement; ax: number; ay: number } | null = null;
+  // progression
+  level = 1; xp = 0;
+  weapon: { key: string; rarity: number } = { key: 'dagger', rarity: 0 };
+  passives: { key: string; rarity: number }[] = [];
+  /** summed strength of a passive (rarity scales it); 0 when not owned */
+  has(key: string) { return this.passives.filter((p) => p.key === key).reduce((a, p) => a + RARITY[p.rarity].mul, 0); }
+  get dmgMul() { return (1 + 0.09 * (this.level - 1)) * RARITY[this.weapon.rarity].mul; }
+  get speedMul() { return 1 + 0.12 * this.has('swift'); }
+  get perfectWindow() { return PARRY_PERFECT + 0.04 * this.has('deflector'); }
+  get critMul() { return 1 + 0.35 * this.has('execution'); }
+
   /** player color / look index (0 = Dylan) */
   slot = 0;
   /** co-op: set on other players' characters (null for the local player) */
@@ -64,7 +74,7 @@ export class Player {
 
   get parryPhase(): 'perfect' | 'guard' | null {
     if (this.state !== 'parry') return null;
-    return this.t < PARRY_PERFECT ? 'perfect' : 'guard';
+    return this.t < this.perfectWindow ? 'perfect' : 'guard';
   }
 
   tryParry(g: Game) {
@@ -124,11 +134,11 @@ export class Player {
         g.fx.after(roll.shadow[fi], this.x, this.y, this.face < 0, 32, 64, 0.24);
       }
       if (this.t >= ROLL_TIME) {
-        this.setState('normal'); this.rollCd = ROLL_COOLDOWN; this.punch(3);
+        this.setState('normal'); this.rollCd = ROLL_COOLDOWN / (1 + 0.3 * this.has('swift')); this.punch(3);
         g.fx.burst(this.x, this.y, 5, { speed: 40, colors: ['#3a3155', '#2a2340'], size: 2, life: 0.35, z: 1, vz: 8, grav: 40 });
       }
     } else {
-      let speed = SPEED;
+      let speed = SPEED * this.speedMul;
       if (this.state === 'parry') speed *= 0.35;
       if (this.state === 'recover') speed *= 0.45;
       if (this.action?.name === 'riposte') speed *= 0.3;
@@ -170,7 +180,7 @@ export class Player {
 
     // mana regenerates after a short pause
     this.manaDelay -= dt;
-    if (this.manaDelay <= 0) this.mana = Math.min(this.maxMana, this.mana + 30 * dt);
+    if (this.manaDelay <= 0) this.mana = Math.min(this.maxMana, this.mana + 30 * (1 + 0.6 * this.has('font')) * dt);
 
     if (g.input.firing && this.state !== 'roll' && this.action?.name !== 'riposte' && this.fireCd <= 0) this.fire(g);
     this.updateBlade(dt);
@@ -242,14 +252,15 @@ export class Player {
   }
 
   fire(g: Game) {
+    const W = WEAPONS[this.weapon.key];
     const emp = this.empowered > 0;
-    const cost = emp ? 0 : SHOT_COST;
+    const cost = emp ? 0 : W.cost;
     if (this.mana < cost) {
       if (this.fireCd <= 0) { this.fireCd = 0.25; g.fx.text(this.x, this.y - Player.HEAD - 10, 'NO MANA', '#8a7ab8', 1, 0.5); }
       return;
     }
     this.mana -= cost; this.manaDelay = 0.45;
-    this.fireCd = FIRE_INTERVAL;
+    this.fireCd = W.interval;
     if (Math.abs(this.aimX - this.x) > 2) this.face = Math.sign(this.aimX - this.x);
     this.aimHold = AIM_HOLD;
     this.bladeA = this.aimAngle();
@@ -258,13 +269,22 @@ export class Player {
     const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
     // tiny spread keeps streams lively without hurting aim
     const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.05;
-    const speed = emp ? 520 : 440;
-    g.bullets.push({
-      x: b.tx, y: b.ty, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-      r: emp ? 5 : 3, dmg: emp ? 22 : 9, team: 'player', heavy: false, life: 0.85, age: 0,
-      color: emp ? '#d8a8ff' : '#a45cff', kind: emp ? 'big' : 'dagger', pierce: emp ? 3 : 0, hits: new Set(), source: null,
-    });
-    g.onShot(g.bullets[g.bullets.length - 1]);
+    const speed = emp ? 520 : W.speed, big = emp || W.big;
+    const dmg = (emp ? Math.max(22, W.dmg * 2.2) : W.dmg) * this.dmgMul;
+    const n = emp ? 1 : W.shots;
+    for (let i = 0; i < n; i++) {
+      const ai = a + (i - (n - 1) / 2) * W.spread;
+      const lanes = W.parallel && !emp ? [-W.parallel / 2, W.parallel / 2] : [0];
+      for (const off of lanes) {
+        const ox = -Math.sin(ai) * off, oy = Math.cos(ai) * off;
+        g.bullets.push({
+          x: b.tx + ox, y: b.ty + oy, vx: Math.cos(ai) * speed, vy: Math.sin(ai) * speed,
+          r: big ? 5 : 3, dmg, team: 'player', heavy: false, life: emp ? 0.85 : W.life, age: 0,
+          color: emp ? '#d8a8ff' : W.color, kind: big ? 'big' : 'dagger', pierce: emp ? 3 : W.pierce, hits: new Set(), source: null,
+        });
+        g.onShot(g.bullets[g.bullets.length - 1]);
+      }
+    }
     if (emp) { this.empowered--; g.sfx('shootBig', this.x); g.shake(0.12); } else g.sfx('shoot', this.x);
     this.vx -= dx * 18; this.vy -= dy * 18;           // body recoil
     this.recoil = emp ? 6 : 4;                          // blade snaps back

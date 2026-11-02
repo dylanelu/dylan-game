@@ -30,6 +30,8 @@ export class Coop {
   private plT = 0; private snapT = 0;
   private wasHost = false;
   status = 'CONNECTING';
+  /** joined someone else's night: move next to the host once we know where they are */
+  private regroup = false;
 
   constructor(private g: Game, readonly roomId: string) {
     const net = this.net = new Net(roomId);
@@ -59,6 +61,7 @@ export class Coop {
     if (!n.isHost && this.wasHost && n.peers.size) {
       // we joined someone else's gate: their world replaces ours
       g.enemies = []; g.bullets = []; g.hazards = [];
+      this.regroup = true;
     }
     this.wasHost = n.isHost;
   }
@@ -85,6 +88,7 @@ export class Coop {
       if (this.snapT <= 0) {
         this.snapT = 1 / 15;
         this.net.sendSnap({
+          n: { t: r1(g.night.t), mb: [...g.night.activeMb], bs: g.night.bossSpawned ? 1 : 0 },
           e: g.enemies.filter((e) => !e.dead).map((e) => ({
             i: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), f: e.face, s: e.state, st: r1(e.stateT),
             h: Math.round(e.hp), m: e.maxHp, fl: e.flash > 0 ? 1 : 0, a: e.shadowAnim,
@@ -113,6 +117,12 @@ export class Coop {
 
   private applyPlayer(s: Wire, from: string) {
     const g = this.g;
+    if (this.regroup && from === this.net.hostId) {
+      this.regroup = false;
+      g.player.x = s.x + 24; g.player.y = s.y + 8;
+      g.level.collide(g.player, g.player.r);
+      g.cam.x = g.player.x - g.r.w / 2; g.cam.y = g.player.y - g.r.h / 2;
+    }
     if (this.net.slotOf(from) >= MAX_PLAYERS) return;
     let p = g.remotes.get(from);
     if (!p) {
@@ -134,6 +144,12 @@ export class Coop {
 
   private applySnap(s: Wire) {
     const g = this.g, seen = new Set<number>();
+    if (s.n) {
+      const n = g.night;
+      n.t = Math.abs(n.t - s.n.t) > 1 ? s.n.t : n.t + (s.n.t - n.t) * 0.2;   // follow the host's clock
+      n.activeMb = new Set(s.n.mb);
+      n.bossSpawned = !!s.n.bs;
+    }
     for (const w of s.e) {
       seen.add(w.i);
       let e = g.enemies.find((x) => x.id === w.i);
@@ -194,6 +210,10 @@ export class Coop {
         break;
       }
       case 'cmd': if (this.isHost) g.sandbox(m.act); break;
+      case 'chest': if (!g.night.chests.some((c) => c.id === m.id)) g.night.chests.push({ id: m.id, x: m.x, y: m.y, opened: false, t: 0 }); break;
+      case 'gate': g.night.bossSpawned = true; g.banner('THE GATE OPENS', '#ff3355', 3); g.gatePull(); break;
+      case 'reset': if (!this.isHost) g.restartNight({ x: m.x, y: m.y }); break;
+      case 'restartReq': if (this.isHost && g.night.ended) g.restartNight(); break;
       case 'atk': {
         const res: HitResult = g.hitPlayer({ x: m.sx, y: m.sy }, m.dmg, { heavy: !!m.h, kind: m.k, counter: !!m.c, lag: LAG_COMP });
         this.net.sendEvt({ t: 'atkr', id: m.id, res }, from);
