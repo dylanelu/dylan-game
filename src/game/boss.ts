@@ -3,7 +3,8 @@ import { Enemy, type EnemyKind } from './enemies';
 import type { Game } from './game';
 
 // Elden Ring cadence (readable windups, delayed swings, punish windows) mixed with
-// bullet-hell patterns. Parries build posture; a full posture bar breaks the boss open.
+// bullet-hell patterns. Every attack can be parried; parries build posture and a full bar breaks the boss open.
+// Red-glint attacks are heavy: a perfect parry deflects them for big posture damage, a late guard chips hard.
 
 type Attack = 'combo' | 'burst' | 'spiral' | 'leap' | 'charge';
 const WHITE = '#ffffff', RED = '#ff3355';
@@ -101,9 +102,11 @@ export class Boss extends Enemy {
     }
   }
 
-  parried(g: Game) {
-    // deflecting a boss swing doesn't stagger it, it fills posture (Sekiro rules)
-    this.addPosture(g, 19);
+  parried(g: Game) { this.deflected(g, 19); }
+
+  deflected(g: Game, posture: number) {
+    // deflecting a boss attack doesn't stagger it, it fills posture (Sekiro rules)
+    this.addPosture(g, posture);
     const d = this.dirTo(g.player.x, g.player.y);
     this.vx = -d.dx * 90; this.vy = -d.dy * 90;
   }
@@ -178,7 +181,9 @@ export class Boss extends Enemy {
               // wide sweep: roll through it
               g.sfx('slam', this.x); g.shake(0.4);
               g.fx.ring(this.x, this.y - 10, 80, '#ff3355', 0.3, 4);
-              if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 76 + p.r) g.hitPlayer(this, 26, { parryable: false, kind: 'aoe' });
+              if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 76 + p.r) {
+                if (g.hitPlayer(this, 26, { heavy: true, kind: 'aoe' }) === 'parried') g.deflect(this, true);
+              }
             } else {
               this.vx = this.fromX * 300 * S; this.vy = this.fromY * 300 * S;
               g.sfx('swing', this.x);
@@ -188,7 +193,7 @@ export class Boss extends Enemy {
           if (!isRed && !this.swingResolved && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 30) {
             this.swingResolved = true;
             g.fx.ring(this.x + this.fromX * 26, this.y - 30, 30, '#e8dcff', 0.15, 2);
-            const res = g.hitPlayer(this, 20, { parryable: true, kind: 'melee' });
+            const res = g.hitPlayer(this, 20, { kind: 'melee' });
             if (res === 'parried') g.deflect(this);
           }
         } else if (this.stateT > wind + 0.28 / S) {
@@ -260,10 +265,17 @@ export class Boss extends Enemy {
           g.fx.burst(this.x, this.y, 30, { speed: 200, colors: ['#3a3155', '#5a4a7a', '#241c38'], size: 2, life: 0.8 });
           g.fx.light(this.x, this.y, 160, '#ff4422', 1);
           g.fx.splat(this.x, this.y, '#0c0818', 30, 30);
-          if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 58 + p.r) g.hitPlayer(this, 28, { parryable: false, kind: 'aoe' });
-          g.hazard(this.x, this.y, 240, 150, 20);
-          const n = this.phase === 2 ? 16 : 12;
-          for (let i = 0; i < n; i++) g.enemyBullet(this.x, this.y - 10, (i / n) * Math.PI * 2, 90, { source: this });
+          let deflected = false;
+          if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 58 + p.r) {
+            deflected = g.hitPlayer(this, 28, { heavy: true, kind: 'aoe' }) === 'parried';
+            if (deflected) g.deflect(this, true);
+          }
+          // deflecting the landing smothers its shockwave and bullet ring
+          if (!deflected) {
+            g.hazard(this.x, this.y, 240, 150, 20);
+            const n = this.phase === 2 ? 16 : 12;
+            for (let i = 0; i < n; i++) g.enemyBullet(this.x, this.y - 10, (i / n) * Math.PI * 2, 90, { source: this });
+          }
           this.setState('recover'); this.idleFor = 1.0;
         }
         break;
@@ -291,7 +303,13 @@ export class Boss extends Enemy {
           g.fx.after(this.anim.shadow[0], this.x, this.y, this.face < 0, this.anim.w >> 1, this.anim.h, 0.2);
           if (!this.hitThisAttack && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 10) {
             this.hitThisAttack = true;
-            g.hitPlayer(this, 24, { parryable: false, kind: 'melee' });
+            if (g.hitPlayer(this, 24, { heavy: true, kind: 'melee' }) === 'parried') {
+              // deflecting a charge stops it dead
+              g.deflect(this, true);
+              this.vx = -this.chargeDx * 120; this.vy = -this.chargeDy * 120;
+              this.setState('recover'); this.idleFor = 1.1;
+              return;
+            }
           }
         } else if (this.stateT > wind + 0.85) {
           this.charges++;
@@ -314,7 +332,7 @@ export class Boss extends Enemy {
     this.setState(a);
     this.step = 0; this.charges = 0; this.swingResolved = false;
     this.steps = this.phase === 2 ? 4 : 3;
-    // phase 2 sometimes ends a combo with an unparryable sweep, so you can't just mash parry
+    // phase 2 sometimes ends a combo with a heavy sweep: it must be perfect-parried (a late guard chips hard) or rolled
     this.redStep = this.phase === 2 && Math.random() < 0.6 ? this.steps - 1 : -1;
     this.emitT = 0;
   }

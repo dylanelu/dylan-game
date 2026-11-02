@@ -213,7 +213,7 @@ export class Player {
     const speed = emp ? 520 : 440;
     g.bullets.push({
       x: h.x, y: h.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-      r: emp ? 5 : 3, dmg: emp ? 22 : 9, team: 'player', parryable: false, life: 0.85, age: 0,
+      r: emp ? 5 : 3, dmg: emp ? 22 : 9, team: 'player', heavy: false, life: 0.85, age: 0,
       color: emp ? '#d8a8ff' : '#a45cff', kind: emp ? 'big' : 'dagger', pierce: emp ? 3 : 0, hits: new Set(), source: null,
     });
     if (emp) { this.empowered--; g.sfx('shootBig', this.x); g.shake(0.12); } else g.sfx('shoot', this.x);

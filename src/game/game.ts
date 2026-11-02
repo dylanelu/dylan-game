@@ -13,7 +13,7 @@ export type HitResult = 'hit' | 'parried' | 'guarded' | 'dodged' | 'ignored';
 
 export interface Bullet {
   x: number; y: number; vx: number; vy: number; r: number; dmg: number;
-  team: 'enemy' | 'player'; parryable: boolean; life: number; age: number;
+  team: 'enemy' | 'player'; heavy: boolean; life: number; age: number;
   color: string; kind: 'orb' | 'dagger' | 'big'; pierce: number;
   hits: Set<Enemy> | null; source: Enemy | null;
 }
@@ -137,15 +137,16 @@ export class Game {
 
   enemyBullet(x: number, y: number, a: number, speed: number, o: Partial<Bullet> = {}) {
     this.bullets.push({
-      x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 4, dmg: 10, team: 'enemy', parryable: true,
+      x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 4, dmg: 10, team: 'enemy', heavy: false,
       life: 6, age: 0, color: '#ff4a6a', kind: 'orb', pierce: 0, hits: null, source: null, ...o,
     });
   }
 
   // ------------------------------------------------------------------ combat resolution
 
-  /** Every attack on the player funnels through here so dodge/parry/guard rules live in one place. */
-  hitPlayer(src: { x: number; y: number }, dmg: number, o: { parryable: boolean; kind: 'melee' | 'bullet' | 'aoe' }): HitResult {
+  /** Every attack on the player funnels through here so dodge/parry/guard rules live in one place.
+   *  Everything can be parried. Heavy (red-glint) attacks pay out more on a perfect parry and chip harder through a late guard. */
+  hitPlayer(src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe' }): HitResult {
     const p = this.player;
     if (p.state === 'dead') return 'ignored';
     if (p.iframes > 0) {
@@ -154,11 +155,11 @@ export class Game {
     }
     if (p.invuln > 0) return 'ignored';
     const phase = p.parryPhase;
-    if (o.parryable && phase) {
+    if (phase) {
       const fx = (src.x + p.x) / 2, fy = (src.y + p.y) / 2 - 28;
-      if (phase === 'perfect') { this.perfectParry(fx, fy, o.kind); return 'parried'; }
+      if (phase === 'perfect') { this.perfectParry(fx, fy, o.kind, !!o.heavy); return 'parried'; }
       // guard: late parry still blocks most of it
-      this.damagePlayer(Math.round(dmg * 0.25), src, true);
+      this.damagePlayer(Math.round(dmg * (o.heavy ? 0.5 : 0.25)), src, true);
       this.sfx('guard', p.x); this.shake(0.15); this.hitstop(0.04);
       this.fx.burst(fx, fy, 6, { speed: 120, color: '#c8b8e8', glow: true, life: 0.2, grav: 0 });
       this.fx.text(p.x, p.y - 70, 'GUARD', '#a89cc8', 1, 0.5);
@@ -190,7 +191,7 @@ export class Game {
     }
   }
 
-  private perfectParry(x: number, y: number, kind: string) {
+  private perfectParry(x: number, y: number, kind: string, heavy = false) {
     const p = this.player;
     p.parryFlash = 0.12;
     p.parryAngle = Math.atan2(y - (p.y - 30), x - p.x);
@@ -199,14 +200,16 @@ export class Game {
     p.empowered = Math.min(6, p.empowered + 3);
     this.combo++; this.comboT = 3;
     this.sfx('parry', x); this.audio.muffleFor(0.3, 900); this.audio.duck(0.35, 0.5);
-    this.hitstop(kind === 'bullet' ? 0.05 : 0.1);
-    this.slowmo(0.28, 0.35);
-    this.shake(0.3); this.chroma(1.6); this.flash('#ffffff', 0.22); this.zoomPunch(0.035);
+    this.hitstop(heavy ? 0.15 : kind === 'bullet' ? 0.05 : 0.1);
+    this.slowmo(heavy ? 0.45 : 0.28, heavy ? 0.25 : 0.35);
+    this.shake(heavy ? 0.55 : 0.3); this.chroma(heavy ? 2.2 : 1.6); this.flash(heavy ? '#ffd8e0' : '#ffffff', heavy ? 0.32 : 0.22); this.zoomPunch(heavy ? 0.06 : 0.035);
+    if (heavy) { this.fx.ring(x, y, 100, '#ff3355', 0.45, 3); p.empowered = Math.min(8, p.empowered + 2); }
     this.fx.ring(x, y, 44, '#ffffff', 0.25, 3);
     this.fx.ring(x, y, 70, '#b26bff', 0.4, 2);
     this.fx.burst(x, y, 22, { speed: 260, colors: ['#ffffff', '#e8dcff', '#ffd84a'], glow: true, life: 0.3, grav: 0, drag: 6, size: 1 });
     this.fx.light(x, y, 140, '#e8dcff', 1);
-    this.fx.text(p.x, p.y - 74, this.combo > 1 ? `PERFECT x${this.combo}` : 'PERFECT', '#ffffff', 1, 0.7);
+    const word = heavy ? 'DEFLECT' : 'PERFECT';
+    this.fx.text(p.x, p.y - 74, this.combo > 1 ? `${word} x${this.combo}` : word, heavy ? '#ffd84a' : '#ffffff', heavy ? 2 : 1, 0.8);
   }
 
   /** Perfect parry on a normal enemy: stagger it and counter-strike instantly. */
@@ -223,8 +226,11 @@ export class Game {
     });
   }
 
-  /** Perfect parry on the boss: posture instead of stagger. */
-  deflect(e: Enemy) { e.parried(this); }
+  /** Perfect parry on the boss: posture instead of stagger. Heavy attacks are worth more. */
+  deflect(e: Enemy, heavy = false) {
+    if (e instanceof Boss) e.deflected(this, heavy ? 34 : 19);
+    else e.parried(this);
+  }
 
   onEnemyKilled(e: Enemy, how: string) {
     this.kills++;
@@ -396,7 +402,7 @@ export class Game {
         // bullets fly at chest height (y - 0); the player's hurt circle sits around the torso
         const d = Math.hypot(b.x - p.x, b.y - (p.y - 26));
         if (d < b.r + p.r + 3) {
-          const res = this.hitPlayer(b, b.dmg, { parryable: b.parryable, kind: 'bullet' });
+          const res = this.hitPlayer(b, b.dmg, { heavy: b.heavy, kind: 'bullet' });
           if (res === 'parried') this.reflect(b);
           else if (res !== 'dodged') b.life = 0;
         }
@@ -421,13 +427,14 @@ export class Game {
   /** Parried bullets fly back as empowered player shots aimed at whoever fired them. */
   private reflect(b: Bullet) {
     this.sfx('reflect', b.x);
-    b.team = 'player'; b.parryable = false; b.color = '#e8dcff'; b.kind = 'big'; b.dmg = 28; b.pierce = 1; b.life = 1.5;
+    const wasHeavy = b.heavy;
+    b.team = 'player'; b.heavy = false; b.color = wasHeavy ? '#ffd84a' : '#e8dcff'; b.kind = 'big'; b.dmg = wasHeavy ? 60 : 28; b.pierce = wasHeavy ? 3 : 1; b.life = 1.5;
     b.hits = new Set();
     let tx = b.x - b.vx, ty = b.y - b.vy;
     if (b.source && !b.source.dead) { tx = b.source.x; ty = b.source.y - b.source.height() * 0.5; }
     const dx = tx - b.x, dy = ty - b.y, l = Math.hypot(dx, dy) || 1, sp = 380;
     b.vx = (dx / l) * sp; b.vy = (dy / l) * sp;
-    if (b.source instanceof Boss) b.source.addPosture(this, 4);
+    if (b.source instanceof Boss) b.source.addPosture(this, wasHeavy ? 10 : 4);
   }
 
   private updateHazards(dt: number) {
@@ -437,8 +444,9 @@ export class Game {
       if (!h.hit) {
         const d = Math.hypot(p.x - h.x, (p.y - h.y) / 0.62);
         if (Math.abs(d - h.r) < 4 + p.r * 0.5) {   // match the thin ring the player sees
-          const res = this.hitPlayer(h, h.dmg, { parryable: false, kind: 'aoe' });
-          if (res === 'hit') h.hit = true;
+          const res = this.hitPlayer(h, h.dmg, { heavy: true, kind: 'aoe' });
+          // a parried shockwave is cut: it passes harmlessly from here on
+          if (res === 'hit' || res === 'parried' || res === 'guarded') h.hit = true;
         }
       }
     }

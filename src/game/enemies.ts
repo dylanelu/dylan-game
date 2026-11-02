@@ -230,7 +230,7 @@ export class Ghoul extends Enemy {
       case 'lunge':
         if (!this.hitThisAttack && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 7) {
           this.hitThisAttack = true;
-          const res: HitResult = g.hitPlayer(this, 12, { parryable: true, kind: 'melee' });
+          const res: HitResult = g.hitPlayer(this, 12, { kind: 'melee' });
           if (res === 'parried') { g.riposte(this, 60); return; }
         }
         if (this.stateT >= 0.2) { this.setState('recover'); this.cd = 0.9 + Math.random() * 0.6; }
@@ -281,7 +281,7 @@ export class Caster extends Enemy {
         if (this.stateT >= 0.6) {
           const a = Math.atan2(p.y - 30 - (this.y - 22), p.x - this.x);
           if (this.heavyShot) {
-            g.enemyBullet(this.x, this.y - 22, a, 85, { r: 7, dmg: 18, parryable: false, kind: 'big', color: '#ff2244', source: this });
+            g.enemyBullet(this.x, this.y - 22, a, 85, { r: 7, dmg: 18, heavy: true, kind: 'big', color: '#ff2244', source: this });
           } else {
             for (const off of [-0.24, 0, 0.24]) g.enemyBullet(this.x, this.y - 22, a + off, 128, { source: this });
           }
@@ -340,7 +340,7 @@ export class Brute extends Enemy {
             g.sfx('swing', this.x);
             this.punch(3);
             if (d.d < 66 && p.state !== 'dead') {
-              const res = g.hitPlayer(this, 22, { parryable: true, kind: 'melee' });
+              const res = g.hitPlayer(this, 22, { kind: 'melee' });
               if (res === 'parried') { g.riposte(this, 45); return; }
             }
             g.fx.ring(this.x + d.dx * 20, this.y - 20 + d.dy * 10, 34, '#d8c8ff', 0.18, 2);
@@ -351,7 +351,10 @@ export class Brute extends Enemy {
             g.fx.ring(this.ax, this.ay, 62, '#ff3355', 0.35, 3);
             g.fx.burst(this.ax, this.ay, 22, { speed: 150, colors: ['#3a3155', '#5a4a7a'], size: 2, life: 0.6 });
             g.fx.light(this.ax, this.ay, 120, '#ff4422', 1);
-            if (Math.hypot((p.x - this.ax), (p.y - this.ay) / 0.62) < 58 + p.r) g.hitPlayer({ x: this.ax, y: this.ay }, 26, { parryable: false, kind: 'aoe' });
+            if (Math.hypot((p.x - this.ax), (p.y - this.ay) / 0.62) < 58 + p.r) {
+              const res = g.hitPlayer({ x: this.ax, y: this.ay }, 26, { heavy: true, kind: 'aoe' });
+              if (res === 'parried') { g.riposte(this, 55); return; }
+            }
           }
           this.setState('recover');
         }

@@ -21,8 +21,9 @@ npm run build      # static output in dist/, deployable to GitHub Pages
 | Roll | flick with a second finger | Space / Shift |
 
 Perfect parry (first 0.15s): staggers normal enemies with a counter-strike, reflects bullets, refills mana and
-charges empowered shots. Enemies killed by a counter-strike rise as shadow soldiers. A white glint means
-parryable; a red glint means roll. Parrying the boss fills its posture bar; a full bar breaks it open.
+charges empowered shots. Enemies killed by a counter-strike rise as shadow soldiers. Every attack can be
+parried. A white glint is a normal attack; a red glint is heavy: perfect-parry it for a bigger payoff (a late guard
+chips hard), or roll through it. Parrying the boss fills its posture bar; a full bar breaks it open.
 
 Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` god mode, `H` hitboxes.
 
