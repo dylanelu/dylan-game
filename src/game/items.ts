@@ -91,8 +91,9 @@ export function itemName(it: Item) {
 
 const pick = <T>(xs: T[], r: () => number) => xs[Math.floor(r() * xs.length)];
 
-/** Roll loot for a source. Mini-bosses: rare+ gear and a flask. Chests: gear or a flask. Elites: maybe a flask. */
-export function rollLoot(source: 'miniboss' | 'chest' | 'elite' | 'boss', r = Math.random): Item[] {
+/** Roll loot for a source. Mini-bosses: rare+ gear and a flask. Chests: gear or a flask. Elites: often a flask.
+ *  Ordinary enemies: now and then a flask, so a long fight away from chests can still be won back. */
+export function rollLoot(source: 'miniboss' | 'chest' | 'elite' | 'boss' | 'mob', r = Math.random): Item[] {
   const rarity = (floor: number) => {
     const x = r();
     return Math.max(floor, x < 0.55 ? 0 : x < 0.85 ? 1 : x < 0.97 ? 2 : 3);
@@ -103,8 +104,9 @@ export function rollLoot(source: 'miniboss' | 'chest' | 'elite' | 'boss', r = Ma
   switch (source) {
     case 'boss': return [gear(3), { kind: 'flask', rarity: 0 }];
     case 'miniboss': return [gear(1), { kind: 'flask', rarity: 0 }];
-    case 'chest': return r() < 0.65 ? [gear(0)] : [{ kind: 'flask', rarity: 0 }];
-    case 'elite': return r() < 0.2 ? [{ kind: 'flask', rarity: 0 }] : [];
+    case 'chest': return r() < 0.55 ? [gear(0)] : [{ kind: 'flask', rarity: 0 }];
+    case 'elite': return r() < 0.35 ? [{ kind: 'flask', rarity: 0 }] : [];
+    case 'mob': return r() < 0.04 ? [{ kind: 'flask', rarity: 0 }] : [];
   }
 }
 

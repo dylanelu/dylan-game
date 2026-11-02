@@ -733,6 +733,7 @@ export class Game {
       return;
     }
     if (!e.ally && (e.elite || e.boss || e.kind === 'brute' || e.kind === 'titan')) this.night.spill(rollLoot(e.boss ? 'boss' : e.elite ? 'miniboss' : 'elite'), e.x, e.y);
+    else if (!e.ally && !(e instanceof Mob && e.small)) this.night.spill(rollLoot('mob'), e.x, e.y);
     if (e.boss) {
       this.night.ended = 'won'; this.night.endT = 0;
       this.slowmo(2, 0.2); this.flash('#ffffff', 0.5); this.shake(1); this.chroma(2);

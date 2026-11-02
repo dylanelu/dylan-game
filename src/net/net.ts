@@ -7,7 +7,7 @@
 import { joinRoom, selfId } from 'trystero';
 
 export const MAX_PLAYERS = 12;
-export const APP_ID = 'shadow-gate.dylanelu.v1';
+export const APP_ID = 'dylans-game.dylanelu.v1';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Wire = any;   // plain JSON objects; shapes are documented where they're built in game.ts

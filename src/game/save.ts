@@ -6,7 +6,7 @@ import { Player } from './player';
 // itself (clock, cleared camps and bosses, chests, loot on the ground). Enemies aren't saved: a camp you were
 // fighting wakes again when you come back. A co-op client saves only its hunter; the host owns the night.
 
-const KEY = 'shadow-gate.night.v1';
+const KEY = 'dylans-game.night.v1';
 const MAX_AGE = 2 * 60 * 60 * 1000;
 
 interface PlayerSave {

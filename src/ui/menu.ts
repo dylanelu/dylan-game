@@ -16,7 +16,7 @@ import { CODE_CHARS, MAX_PLAYERS, makeRoomCode, type Me } from '../net/net';
 
 type Screen = 'main' | 'join' | 'lobby' | 'game' | 'pause' | 'leave' | 'end';
 
-const ME_KEY = 'shadow-gate.me.v1';
+const ME_KEY = 'dylans-game.me.v1';
 const NAME_OK = /[^A-Z0-9 -]/g;
 
 /** Pixel-font label: the game's font at 1x in a canvas, scaled up crisp. */
