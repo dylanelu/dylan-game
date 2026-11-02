@@ -178,6 +178,15 @@
    "select_0",
    "select_1",
    "select_2"
+  ],
+  "victory": [
+   "victory_0"
+  ],
+  "defeat": [
+   "defeat_0"
+  ],
+  "levelUp": [
+   "levelUp_0"
   ]
  },
  "loops": {

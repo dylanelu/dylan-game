@@ -6,8 +6,10 @@ Safari). Loops get a baked crossfade so they repeat seamlessly. The runtime does
 variation and mixing; this script only prepares clean ingredients.
 
 Needs: soundfile + numpy (pip), afconvert (ships with macOS).
+  uv run --with numpy --with soundfile python tools/audio/build.py            # everything
+  uv run --with numpy --with soundfile python tools/audio/build.py victory    # just these clips (manifest is merged)
 """
-import json, os, subprocess, tempfile
+import json, os, subprocess, sys, tempfile
 import numpy as np
 import soundfile as sf
 
@@ -19,9 +21,10 @@ K_RPG = 'rpg-audio/Audio'
 K_SCI = 'sci-fi-sounds/Audio'
 K_UI = 'interface-sounds/Audio'
 C1, C2 = 'oga/80-CC0-creature-SFX_0', 'oga/80-CC0-creature-sfx-2'
+NJ = 'ninja/Jingles'   # Ninja Adventure pack (CC0), Audio/Jingles copied in by hand (see fetch.sh)
 
 # name -> list of (source, options). Variations of one sound share a name and get suffixes _0.._n.
-# options: start/len trim in seconds, peak (normalize target), stereo for music/ambience
+# options: start/len trim in seconds, peak (normalize target), stereo (jingles keep their width)
 CLIPS = {
     # player
     'step':       [(f'{K_IMP}/footstep_concrete_00{i}.ogg', {'peak': 0.6}) for i in range(5)],
@@ -57,6 +60,10 @@ CLIPS = {
     'monster':    [(f'oga/monster_sfx_pack/monster-{i}.wav', {}) for i in range(1, 11)],
     # ui
     'select':     [(f'{K_UI}/select_00{i}.ogg', {'peak': 0.5}) for i in range(1, 4)],
+    # jingles: the end of a match, and leveling up
+    'victory':    [(f'{NJ}/Success3.wav', {'stereo': True, 'peak': 0.8})],
+    'defeat':     [(f'{NJ}/GameOver.wav', {'stereo': True, 'peak': 0.8})],
+    'levelUp':    [(f'{NJ}/LevelUp1.wav', {'stereo': True, 'peak': 0.7})],
 }
 LOOPS = {
     'ambience':  ('oga/dark_cavern_ambient_002.ogg', {'xfade': 3.0, 'peak': 0.6}),
@@ -101,10 +108,15 @@ def encode(x, sr, name, stereo=False, kbps=96):
     return os.path.getsize(dst)
 
 
-def main():
+def main(only):
     os.makedirs(OUT, exist_ok=True)
     manifest, total = {'clips': {}, 'loops': {}}, 0
+    if only:
+        # partial rebuild: keep everything else exactly as it was
+        with open(os.path.join(OUT, 'manifest.json')) as f:
+            manifest = json.load(f)
     for name, variants in CLIPS.items():
+        if only and name not in only: continue
         files = []
         for i, (rel, o) in enumerate(variants):
             x, sr = load(rel)
@@ -114,10 +126,11 @@ def main():
             x = fade_out(trim_tail(x, sr), sr, 0.12 if 'len' in o else 0.025)
             x *= o.get('peak', 0.95) / max(np.abs(x).max(), 1e-9)
             fn = f'{name}_{i}'
-            total += encode(x, sr, fn)
+            total += encode(x, sr, fn, stereo=o.get('stereo', False), kbps=128 if o.get('stereo') else 96)
             files.append(fn)
         manifest['clips'][name] = files
     for name, (rel, o) in LOOPS.items():
+        if only and name not in only: continue
         x, sr = load(rel)
         if 'len' in o: x = x[:int(o['len'] * sr)]
         n = int(o['xfade'] * sr)
@@ -137,4 +150,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(set(sys.argv[1:]))

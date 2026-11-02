@@ -19,3 +19,4 @@ The files were trimmed, normalized and re-encoded by `tools/audio/build.py`.
 | [Dungeon Ambience](https://opengameart.org/content/dungeon-ambience) | yd | drips and room tone |
 | [Heavy Boss Battle 1](https://opengameart.org/content/heavy-boss-battle-1) | MintoDog | boss music |
 | [Boss Battle (loop)](https://opengameart.org/content/boss-battle-loop) | Pro Sensory | wave combat music |
+| [Ninja Adventure](https://pixel-boy.itch.io/ninja-adventure-asset-pack) | Pixel-boy and AAA | victory, defeat and level-up jingles (Success3, GameOver, LevelUp1) |
