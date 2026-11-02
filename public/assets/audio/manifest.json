@@ -1,0 +1,189 @@
+{
+ "clips": {
+  "step": [
+   "step_0",
+   "step_1",
+   "step_2",
+   "step_3",
+   "step_4"
+  ],
+  "swish": [
+   "swish_0",
+   "swish_1",
+   "swish_2",
+   "swish_3",
+   "swish_4",
+   "swish_5"
+  ],
+  "swishHeavy": [
+   "swishHeavy_0",
+   "swishHeavy_1",
+   "swishHeavy_2",
+   "swishHeavy_3"
+  ],
+  "cloth": [
+   "cloth_0",
+   "cloth_1",
+   "cloth_2",
+   "cloth_3"
+  ],
+  "knife": [
+   "knife_0",
+   "knife_1"
+  ],
+  "draw": [
+   "draw_0",
+   "draw_1",
+   "draw_2"
+  ],
+  "punch": [
+   "punch_0",
+   "punch_1",
+   "punch_2",
+   "punch_3",
+   "punch_4"
+  ],
+  "punchHeavy": [
+   "punchHeavy_0",
+   "punchHeavy_1",
+   "punchHeavy_2",
+   "punchHeavy_3",
+   "punchHeavy_4"
+  ],
+  "soft": [
+   "soft_0",
+   "soft_1",
+   "soft_2",
+   "soft_3",
+   "soft_4"
+  ],
+  "metal": [
+   "metal_0",
+   "metal_1",
+   "metal_2",
+   "metal_3",
+   "metal_4"
+  ],
+  "plate": [
+   "plate_0",
+   "plate_1",
+   "plate_2",
+   "plate_3",
+   "plate_4"
+  ],
+  "bell": [
+   "bell_0",
+   "bell_1",
+   "bell_2",
+   "bell_3"
+  ],
+  "glassTing": [
+   "glassTing_0",
+   "glassTing_1",
+   "glassTing_2",
+   "glassTing_3",
+   "glassTing_4"
+  ],
+  "crunch": [
+   "crunch_0",
+   "crunch_1",
+   "crunch_2",
+   "crunch_3",
+   "crunch_4"
+  ],
+  "boom": [
+   "boom_0",
+   "boom_1"
+  ],
+  "force": [
+   "force_0",
+   "force_1",
+   "force_2"
+  ],
+  "laser": [
+   "laser_0",
+   "laser_1",
+   "laser_2",
+   "laser_3",
+   "laser_4"
+  ],
+  "magic": [
+   "magic_0",
+   "magic_1",
+   "magic_2",
+   "magic_3",
+   "magic_4"
+  ],
+  "teleport": [
+   "teleport_0"
+  ],
+  "grunt": [
+   "grunt_0",
+   "grunt_1",
+   "grunt_2",
+   "grunt_3",
+   "grunt_4",
+   "grunt_5",
+   "grunt_6",
+   "grunt_7",
+   "grunt_8"
+  ],
+  "snarl": [
+   "snarl_0",
+   "snarl_1",
+   "snarl_2",
+   "snarl_3",
+   "snarl_4"
+  ],
+  "die": [
+   "die_0",
+   "die_1",
+   "die_2",
+   "die_3"
+  ],
+  "hurtCreature": [
+   "hurtCreature_0",
+   "hurtCreature_1",
+   "hurtCreature_2",
+   "hurtCreature_3",
+   "hurtCreature_4"
+  ],
+  "roar": [
+   "roar_0",
+   "roar_1",
+   "roar_2"
+  ],
+  "bossRoar": [
+   "bossRoar_0"
+  ],
+  "stomp": [
+   "stomp_0"
+  ],
+  "breath": [
+   "breath_0"
+  ],
+  "monster": [
+   "monster_0",
+   "monster_1",
+   "monster_2",
+   "monster_3",
+   "monster_4",
+   "monster_5",
+   "monster_6",
+   "monster_7",
+   "monster_8",
+   "monster_9"
+  ],
+  "select": [
+   "select_0",
+   "select_1",
+   "select_2"
+  ]
+ },
+ "loops": {
+  "ambience": "ambience",
+  "drip": "drip",
+  "bossMusic": "bossMusic",
+  "waveMusic": "waveMusic"
+ }
+}

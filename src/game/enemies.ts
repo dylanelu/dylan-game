@@ -68,7 +68,8 @@ export abstract class Enemy {
       speed: 140, angle: Math.atan2(dy, dx), spread: 1.4, colors: ['#5a0f1e', '#8e1b2e', '#3a0a14'], size: 2, life: 0.6, decal: '#2a0610',
     });
     g.fx.burst(this.x, this.y - this.height() * 0.5, 4, { speed: 160, angle: Math.atan2(dy, dx), spread: 1, color: '#d8b8ff', glow: true, life: 0.15, grav: 0, size: 1 });
-    g.audio.play(crit ? 'crit' : 'hit');
+    g.sfx(crit ? 'crit' : 'hit', this.x);
+    if (Math.random() < 0.35) g.sfx('enemyHurt', this.x);
     if (this.hp <= 0) this.die(g, opts.how ?? 'shot');
     else this.onHurt(g, amount);
   }
@@ -88,7 +89,7 @@ export abstract class Enemy {
     g.fx.burst(this.x, this.y - h * 0.5, 14, { speed: 50, colors: ['#7a3cff', '#b26bff', '#3a1a80'], glow: true, life: 1.1, grav: -60, vz: 30, size: 2, drag: 1.5 });
     g.fx.splat(this.x, this.y, '#1e0410', 14, 9);
     g.fx.ring(this.x, this.y - 2, 26, '#7a3cff', 0.35, 2);
-    g.audio.play('death');
+    g.sfx('death', this.x);
     g.shake(0.18);
     g.onEnemyKilled(this, how);
   }
@@ -154,7 +155,7 @@ export class Ghoul extends Enemy {
         if (d.d < 52 && this.cd <= 0 && p.state !== 'dead') {
           this.setState('windup');
           g.fx.glint(this.x, this.y - 30, WHITE, 7);
-          g.audio.play('glint');
+          g.sfx('glint', this.x);
         }
         break;
       case 'windup':
@@ -162,6 +163,7 @@ export class Ghoul extends Enemy {
         if (this.stateT < 0.36) { this.lungeDx = d.dx; this.lungeDy = d.dy; }
         if (this.stateT >= 0.46) {
           this.setState('lunge');
+          g.sfx('lunge', this.x);
           this.vx = this.lungeDx * 280; this.vy = this.lungeDy * 280;
         }
         break;
@@ -208,7 +210,8 @@ export class Caster extends Enemy {
           this.heavyShot = Math.random() < 0.3;
           this.setState('cast');
           g.fx.glint(this.x, this.y - 44, this.heavyShot ? RED : WHITE, 6);
-          g.audio.play(this.heavyShot ? 'danger' : 'glint');
+          g.sfx(this.heavyShot ? 'danger' : 'glint', this.x);
+          g.sfx('cast', this.x);
         }
         break;
       }
@@ -253,9 +256,9 @@ export class Brute extends Enemy {
         if (d.d < 70 && this.cd <= 0 && p.state !== 'dead') {
           this.attack = Math.random() < 0.55 ? 'swing' : 'slam';
           this.setState('windup');
-          if (this.attack === 'swing') { g.fx.glint(this.x, this.y - 58, WHITE, 9); g.audio.play('glint'); }
+          if (this.attack === 'swing') { g.fx.glint(this.x, this.y - 58, WHITE, 9); g.sfx('glint', this.x); }
           else {
-            g.fx.glint(this.x, this.y - 58, RED, 10); g.audio.play('danger');
+            g.fx.glint(this.x, this.y - 58, RED, 10); g.sfx('danger', this.x); g.sfx('bruteRoar', this.x);
             this.ax = this.x + d.dx * 18; this.ay = this.y + d.dy * 10;
             g.fx.telegraphs.push({ x: this.ax, y: this.ay, r: 58, t: 0, dur: 0.85, color: '#ff2244' });
           }
@@ -267,6 +270,7 @@ export class Brute extends Enemy {
         if (this.stateT >= wind) {
           if (this.attack === 'swing') {
             this.vx = d.dx * 160; this.vy = d.dy * 160;
+            g.sfx('swing', this.x);
             if (d.d < 66 && p.state !== 'dead') {
               const res = g.hitPlayer(this, 22, { parryable: true, kind: 'melee' });
               if (res === 'parried') { g.riposte(this, 45); return; }
@@ -274,7 +278,7 @@ export class Brute extends Enemy {
             g.fx.ring(this.x + d.dx * 20, this.y - 20 + d.dy * 10, 34, '#d8c8ff', 0.18, 2);
             g.shake(0.15);
           } else {
-            g.audio.play('slam'); g.shake(0.45);
+            g.sfx('slam', this.x); g.shake(0.45);
             g.fx.ring(this.ax, this.ay, 62, '#ff3355', 0.35, 3);
             g.fx.burst(this.ax, this.ay, 22, { speed: 150, colors: ['#3a3155', '#5a4a7a'], size: 2, life: 0.6 });
             g.fx.light(this.ax, this.ay, 120, '#ff4422', 1);

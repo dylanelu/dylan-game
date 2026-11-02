@@ -6,3 +6,4 @@ dist
 .claude/
 tools/hero/hero-native.png
 tools/hero/hero-check.png
+tools/audio/raw/

@@ -1,163 +1,237 @@
-// Every sound is synthesized: no audio files to load.
+// Sample-based audio. CC0 clips (see public/assets/audio/CREDITS.md) are layered per game event with
+// random variation, panned by screen position, sent through a short dungeon reverb, and limited.
+// A small synth adds sub-bass and shimmer layers that samples can't provide cheaply.
 
-type Wave = OscillatorType;
+type Manifest = { clips: Record<string, string[]>; loops: Record<string, string> };
+export interface PlayOpts { pan?: number; vol?: number; pitch?: number }
+
+interface Layer { clip: string; vol: number; pitch?: [number, number]; delay?: number; rev?: number }
+
+const BASE = 'assets/audio/';
+
+// Each game event is a small recipe of layers. vol is linear; pitch is a random rate range.
+const EVENTS: Record<string, { layers: Layer[]; gate?: number; maxVoices?: number }> = {
+  shoot:      { gate: 0.03, maxVoices: 4, layers: [{ clip: 'swish', vol: 0.32, pitch: [1.5, 1.8] }, { clip: 'laser', vol: 0.07, pitch: [1.6, 2.0] }] },
+  shootBig:   { layers: [{ clip: 'swishHeavy', vol: 0.5, pitch: [0.9, 1.0] }, { clip: 'force', vol: 0.25, pitch: [1.3, 1.5] }, { clip: 'draw', vol: 0.3 }] },
+  hit:        { gate: 0.025, maxVoices: 5, layers: [{ clip: 'punch', vol: 0.55, pitch: [0.9, 1.15] }, { clip: 'soft', vol: 0.25, pitch: [1.1, 1.3] }] },
+  crit:       { layers: [{ clip: 'punchHeavy', vol: 0.8, pitch: [0.85, 0.95] }, { clip: 'knife', vol: 0.5 }, { clip: 'crunch', vol: 0.25, pitch: [1.2, 1.4] }] },
+  riposte:    { layers: [{ clip: 'knife', vol: 0.75, pitch: [0.9, 1.0] }, { clip: 'swishHeavy', vol: 0.5, pitch: [0.8, 0.9] }, { clip: 'punchHeavy', vol: 0.7, delay: 0.05 }] },
+  parry:      { layers: [{ clip: 'metal', vol: 0.9, pitch: [1.05, 1.15], rev: 0.6 }, { clip: 'bell', vol: 0.45, pitch: [1.4, 1.55], rev: 0.8 }, { clip: 'plate', vol: 0.3, pitch: [1.2, 1.3] }] },
+  reflect:    { gate: 0.04, layers: [{ clip: 'metal', vol: 0.55, pitch: [1.4, 1.6] }, { clip: 'glassTing', vol: 0.35, pitch: [0.9, 1.0] }] },
+  guard:      { layers: [{ clip: 'plate', vol: 0.7, pitch: [0.8, 0.9] }, { clip: 'punch', vol: 0.3, pitch: [0.7, 0.8] }] },
+  whiff:      { gate: 0.05, layers: [{ clip: 'swish', vol: 0.22, pitch: [0.75, 0.85] }] },
+  roll:       { layers: [{ clip: 'cloth', vol: 0.55, pitch: [0.9, 1.1] }, { clip: 'swishHeavy', vol: 0.3, pitch: [0.7, 0.8] }] },
+  step:       { gate: 0.06, maxVoices: 3, layers: [{ clip: 'step', vol: 0.22, pitch: [0.9, 1.1] }] },
+  hurt:       { layers: [{ clip: 'punchHeavy', vol: 0.8, pitch: [0.8, 0.9] }, { clip: 'crunch', vol: 0.3, pitch: [0.8, 1.0] }] },
+  playerDeath:{ layers: [{ clip: 'punchHeavy', vol: 0.9, pitch: [0.6, 0.65] }, { clip: 'boom', vol: 0.5, rev: 1 }, { clip: 'teleport', vol: 0.3, pitch: [0.5, 0.55], rev: 1 }] },
+  glint:      { gate: 0.06, layers: [{ clip: 'glassTing', vol: 0.45, pitch: [1.5, 1.7], rev: 0.7 }] },
+  danger:     { gate: 0.08, layers: [{ clip: 'bell', vol: 0.4, pitch: [0.5, 0.55], rev: 0.9 }, { clip: 'breath', vol: 0.4, pitch: [0.7, 0.8] }] },
+  lunge:      { gate: 0.05, maxVoices: 3, layers: [{ clip: 'snarl', vol: 0.4, pitch: [0.9, 1.15] }, { clip: 'swish', vol: 0.25, pitch: [0.8, 0.9] }] },
+  swing:      { layers: [{ clip: 'swishHeavy', vol: 0.6, pitch: [0.6, 0.7] }, { clip: 'grunt', vol: 0.45, pitch: [0.6, 0.7] }] },
+  cast:       { gate: 0.1, maxVoices: 2, layers: [{ clip: 'magic', vol: 0.35, pitch: [0.9, 1.1] }] },
+  enemyShoot: { gate: 0.05, maxVoices: 4, layers: [{ clip: 'laser', vol: 0.16, pitch: [0.55, 0.7] }] },
+  enemyHurt:  { gate: 0.08, maxVoices: 2, layers: [{ clip: 'hurtCreature', vol: 0.3, pitch: [0.8, 1.1] }] },
+  death:      { gate: 0.04, maxVoices: 3, layers: [{ clip: 'die', vol: 0.55, pitch: [0.8, 1.05] }, { clip: 'soft', vol: 0.5, pitch: [0.7, 0.8] }] },
+  slam:       { layers: [{ clip: 'boom', vol: 0.9, rev: 0.8 }, { clip: 'crunch', vol: 0.5, pitch: [0.6, 0.7] }, { clip: 'stomp', vol: 0.6, pitch: [0.6, 0.7] }] },
+  bossStep:   { gate: 0.2, layers: [{ clip: 'stomp', vol: 0.25, pitch: [0.45, 0.55] }] },
+  roar:       { layers: [{ clip: 'bossRoar', vol: 0.85, rev: 0.8 }, { clip: 'roar', vol: 0.4, pitch: [0.55, 0.6] }] },
+  bruteRoar:  { gate: 0.5, layers: [{ clip: 'monster', vol: 0.5, pitch: [0.8, 0.95] }] },
+  arise:      { layers: [{ clip: 'teleport', vol: 0.7, pitch: [0.7, 0.75], rev: 1 }, { clip: 'magic', vol: 0.4, pitch: [0.6, 0.7], rev: 1 }] },
+  spawn:      { gate: 0.12, maxVoices: 3, layers: [{ clip: 'magic', vol: 0.25, pitch: [0.5, 0.6], rev: 0.8 }] },
+  break:      { layers: [{ clip: 'bell', vol: 0.9, pitch: [0.7, 0.75], rev: 1 }, { clip: 'crunch', vol: 0.7 }, { clip: 'boom', vol: 0.7 }] },
+  select:     { layers: [{ clip: 'select', vol: 0.5 }] },
+};
 
 export class Audio {
   ctx: AudioContext | null = null;
-  private master!: GainNode;
-  private noiseBuf!: AudioBuffer;
-  private last = new Map<string, number>();
+  private sfx!: GainNode;
+  private music!: GainNode;
+  private amb!: GainNode;
+  private reverb!: GainNode;
+  private muffle!: BiquadFilterNode;
+  private buffers = new Map<string, AudioBuffer>();
+  private manifest: Manifest | null = null;
+  private lastPlay = new Map<string, number>();
+  private voices = new Map<string, number>();
+  private rr = new Map<string, number>();
+  private track: { name: string; src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private wantMusic: string | null = null;
   muted = false;
 
-  unlock() {
-    if (this.ctx) { void this.ctx.resume(); return; }
+  /** Build the graph early (suspended) so clips can decode before the first tap. */
+  init() {
+    if (this.ctx) return;
     const ctx = new AudioContext();
     this.ctx = ctx;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.ratio.value = 6;
-    this.master = ctx.createGain();
-    this.master.gain.value = 0.55;
-    this.master.connect(comp).connect(ctx.destination);
-    const len = ctx.sampleRate;
-    this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = this.noiseBuf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.drone();
-  }
-
-  /** Rate-limit so 40 bullets spawning on one frame don't make 40 sounds. */
-  private gate(name: string, ms: number) {
-    const now = performance.now(), t = this.last.get(name) ?? 0;
-    if (now - t < ms) return false;
-    this.last.set(name, now);
-    return true;
-  }
-
-  private tone(freq: number, to: number, dur: number, type: Wave, vol: number, delay = 0, dest?: AudioNode) {
-    const ctx = this.ctx!, t = ctx.currentTime + delay;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(dest ?? this.master);
-    o.start(t); o.stop(t + dur + 0.02);
-  }
-
-  private noise(dur: number, type: BiquadFilterType, f0: number, f1: number, vol: number, q = 1, delay = 0) {
-    const ctx = this.ctx!, t = ctx.currentTime + delay;
-    const s = ctx.createBufferSource(); s.buffer = this.noiseBuf;
-    s.playbackRate.value = 0.8 + Math.random() * 0.4;
-    const f = ctx.createBiquadFilter(); f.type = type; f.Q.value = q;
-    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f).connect(g).connect(this.master);
-    s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
-  }
-
-  play(name: string, intensity = 1) {
-    if (!this.ctx || this.muted) return;
-    const v = intensity;
-    switch (name) {
-      case 'shoot':
-        if (!this.gate(name, 30)) return;
-        this.tone(1400, 380, 0.07, 'square', 0.05 * v);
-        this.tone(700, 200, 0.09, 'triangle', 0.08 * v);
-        this.noise(0.05, 'highpass', 3000, 1500, 0.05 * v);
-        break;
-      case 'shootBig':
-        this.tone(900, 120, 0.18, 'sawtooth', 0.08);
-        this.noise(0.12, 'bandpass', 2400, 400, 0.12, 2);
-        break;
-      case 'hit':
-        if (!this.gate(name, 25)) return;
-        this.noise(0.07, 'lowpass', 2500, 300, 0.22 * v);
-        this.tone(180, 60, 0.09, 'sine', 0.25 * v);
-        break;
-      case 'crit':
-        this.noise(0.12, 'lowpass', 5000, 200, 0.3);
-        this.tone(320, 50, 0.2, 'square', 0.12);
-        break;
-      case 'parry':
-        // bright metallic clang: inharmonic partials + noise transient
-        for (const [f, vol] of [[1180, 0.12], [1770, 0.09], [2630, 0.07], [3910, 0.04]] as const) this.tone(f, f * 0.995, 0.55, 'triangle', vol);
-        this.noise(0.06, 'highpass', 6000, 3000, 0.25);
-        this.tone(110, 40, 0.35, 'sine', 0.35);
-        break;
-      case 'guard':
-        this.tone(520, 300, 0.12, 'square', 0.07);
-        this.noise(0.08, 'bandpass', 1800, 800, 0.15, 3);
-        break;
-      case 'whiff':
-        this.noise(0.12, 'bandpass', 900, 2500, 0.07, 4);
-        break;
-      case 'roll':
-        this.noise(0.22, 'bandpass', 500, 2600, 0.16, 2);
-        break;
-      case 'hurt':
-        this.tone(240, 70, 0.22, 'sawtooth', 0.14);
-        this.noise(0.18, 'lowpass', 1800, 200, 0.28);
-        break;
-      case 'glint':
-        if (!this.gate(name, 60)) return;
-        this.tone(2400, 3200, 0.12, 'sine', 0.06);
-        this.tone(3600, 4800, 0.1, 'sine', 0.03, 0.02);
-        break;
-      case 'danger':
-        if (!this.gate(name, 80)) return;
-        this.tone(220, 180, 0.35, 'sawtooth', 0.07);
-        this.tone(233, 190, 0.35, 'sawtooth', 0.07);
-        break;
-      case 'enemyShoot':
-        if (!this.gate(name, 45)) return;
-        this.tone(380, 620, 0.09, 'sine', 0.05 * v);
-        break;
-      case 'death':
-        if (!this.gate(name, 40)) return;
-        this.noise(0.35, 'lowpass', 1600, 80, 0.25);
-        this.tone(160, 40, 0.3, 'triangle', 0.15);
-        break;
-      case 'slam':
-        this.noise(0.6, 'lowpass', 900, 40, 0.5);
-        this.tone(90, 28, 0.6, 'sine', 0.5);
-        break;
-      case 'roar':
-        this.tone(95, 60, 1.1, 'sawtooth', 0.12);
-        this.tone(101, 63, 1.1, 'sawtooth', 0.12);
-        this.noise(1.0, 'bandpass', 400, 150, 0.2, 1.5);
-        break;
-      case 'arise':
-        this.tone(110, 220, 0.6, 'sawtooth', 0.06);
-        this.tone(165, 330, 0.6, 'sawtooth', 0.05, 0.05);
-        this.noise(0.6, 'bandpass', 300, 1800, 0.1, 3);
-        break;
-      case 'spawn':
-        if (!this.gate(name, 120)) return;
-        this.noise(0.4, 'bandpass', 200, 900, 0.1, 6);
-        break;
-      case 'break':
-        this.tone(600, 80, 0.8, 'square', 0.1);
-        this.noise(0.5, 'highpass', 4000, 500, 0.3);
-        this.tone(70, 30, 0.8, 'sine', 0.5);
-        break;
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -10; limiter.knee.value = 6; limiter.ratio.value = 12;
+    limiter.attack.value = 0.002; limiter.release.value = 0.12;
+    const master = ctx.createGain(); master.gain.value = 0.9;
+    this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.7;
+    this.muffle.connect(limiter).connect(master).connect(ctx.destination);
+    this.sfx = ctx.createGain(); this.sfx.gain.value = 0.9; this.sfx.connect(this.muffle);
+    this.amb = ctx.createGain(); this.amb.gain.value = 0.5; this.amb.connect(this.muffle);
+    this.music = ctx.createGain(); this.music.gain.value = 0.32; this.music.connect(master);
+    // short stone-room reverb from a generated impulse
+    const conv = ctx.createConvolver();
+    const len = Math.floor(ctx.sampleRate * 1.3), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2) * (i < 200 ? i / 200 : 1);
     }
+    conv.buffer = ir;
+    this.reverb = ctx.createGain(); this.reverb.gain.value = 0.22;
+    this.reverb.connect(conv).connect(this.muffle);
+    void this.load();
   }
 
-  /** Quiet dungeon pad so the room never feels dead silent. */
-  private drone() {
+  unlock() {
+    this.init();
+    if (this.ctx!.state !== 'running') void this.ctx!.resume();
+  }
+
+  private async load() {
     const ctx = this.ctx!;
-    const g = ctx.createGain(); g.gain.value = 0.035;
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
-    const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
-    lfo.frequency.value = 0.07; lfoG.gain.value = 160;
-    lfo.connect(lfoG).connect(f.frequency); lfo.start();
-    for (const fr of [55, 55.4, 82.4, 110.3]) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr;
-      o.connect(f); o.start();
+    this.manifest = await fetch(BASE + 'manifest.json').then((r) => r.json());
+    const names = Object.values(this.manifest!.clips).flat();
+    // small clips first so combat sounds are ready almost instantly; loops after
+    await Promise.all(names.map((n) => this.fetchBuffer(n)));
+    for (const n of Object.values(this.manifest!.loops)) await this.fetchBuffer(n);
+    this.startAmbience();
+    if (this.wantMusic) this.setMusic(this.wantMusic);
+    void ctx;
+  }
+
+  private async fetchBuffer(name: string) {
+    try {
+      const data = await fetch(`${BASE}${name}.m4a`).then((r) => r.arrayBuffer());
+      this.buffers.set(name, await this.ctx!.decodeAudioData(data));
+    } catch { /* a missing clip should never break the game */ }
+  }
+
+  private pick(clip: string): AudioBuffer | undefined {
+    const list = this.manifest?.clips[clip];
+    if (!list?.length) return this.buffers.get(clip);
+    // shuffle-ish round robin: never the same variation twice in a row
+    let i = Math.floor(Math.random() * list.length);
+    if (list.length > 1 && i === this.rr.get(clip)) i = (i + 1) % list.length;
+    this.rr.set(clip, i);
+    return this.buffers.get(list[i]);
+  }
+
+  play(name: string, o: PlayOpts = {}) {
+    const ctx = this.ctx;
+    if (!ctx || this.muted || ctx.state !== 'running') return;
+    const ev = EVENTS[name];
+    if (!ev) return this.synth(name);
+    const now = ctx.currentTime;
+    if (ev.gate && now - (this.lastPlay.get(name) ?? -1) < ev.gate) return;
+    if (ev.maxVoices && (this.voices.get(name) ?? 0) >= ev.maxVoices) return;
+    this.lastPlay.set(name, now);
+    const vol = o.vol ?? 1;
+    let counted = false;
+    for (const L of ev.layers) {
+      const buf = this.pick(L.clip);
+      if (!buf) continue;
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const [p0, p1] = L.pitch ?? [0.95, 1.05];
+      src.playbackRate.value = (p0 + Math.random() * (p1 - p0)) * (o.pitch ?? 1);
+      const g = ctx.createGain(); g.gain.value = L.vol * vol * (0.9 + Math.random() * 0.2);
+      const pan = ctx.createStereoPanner(); pan.pan.value = Math.max(-1, Math.min(1, (o.pan ?? 0) * 0.7));
+      src.connect(g).connect(pan).connect(this.sfx);
+      if (L.rev) { const s = ctx.createGain(); s.gain.value = L.rev; pan.connect(s).connect(this.reverb); }
+      else { const s = ctx.createGain(); s.gain.value = 0.25; pan.connect(s).connect(this.reverb); }
+      src.start(now + (L.delay ?? 0));
+      if (!counted) {
+        // a voice is one event, tracked by its first layer
+        counted = true;
+        this.voices.set(name, (this.voices.get(name) ?? 0) + 1);
+        src.onended = () => this.voices.set(name, Math.max(0, (this.voices.get(name) ?? 1) - 1));
+      }
     }
-    f.connect(g).connect(this.master);
+    this.synthLayer(name);
+  }
+
+  /** Synth sub layers: the low-end weight that makes impacts feel heavy. */
+  private synthLayer(name: string) {
+    switch (name) {
+      case 'parry': this.sub(95, 38, 0.35, 0.45); this.shimmer(); break;
+      case 'crit': case 'riposte': this.sub(120, 45, 0.18, 0.4); break;
+      case 'hurt': this.sub(140, 50, 0.2, 0.35); break;
+      case 'slam': this.sub(70, 28, 0.6, 0.6); break;
+      case 'break': this.sub(80, 30, 0.8, 0.6); this.shimmer(); break;
+      case 'roar': this.sub(55, 40, 1.2, 0.3); break;
+    }
+  }
+
+  private sub(f0: number, f1: number, dur: number, vol: number) {
+    const ctx = this.ctx!, t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.sfx); o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  private shimmer() {
+    const ctx = this.ctx!, t = ctx.currentTime;
+    for (const [f, v] of [[2637, 0.05], [3951, 0.035], [5274, 0.02]] as const) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+      o.connect(g).connect(this.reverb); o.connect(g).connect(this.sfx);
+      o.start(t); o.stop(t + 1);
+    }
+  }
+
+  private synth(_name: string) { /* unknown event: silent by design */ }
+
+  /** Close the high end for a moment: the world "drops out" on a perfect parry or a big hit. */
+  muffleFor(sec: number, freq = 700) {
+    if (!this.ctx) return;
+    const f = this.muffle.frequency, t = this.ctx.currentTime;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(freq, t);
+    f.exponentialRampToValueAtTime(20000, t + sec);
+  }
+
+  private startAmbience() {
+    const ctx = this.ctx!;
+    for (const [name, vol] of [['ambience', 0.55], ['drip', 0.35]] as const) {
+      const buf = this.buffers.get(name);
+      if (!buf) continue;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const g = ctx.createGain(); g.gain.value = vol;
+      src.connect(g).connect(this.amb); src.start();
+    }
+  }
+
+  /** Crossfade between music tracks ('waveMusic', 'bossMusic', or null for silence). */
+  setMusic(name: string | null) {
+    this.wantMusic = name;
+    const ctx = this.ctx;
+    if (!ctx || (this.track?.name ?? null) === name) return;
+    const t = ctx.currentTime;
+    if (this.track) {
+      const old = this.track;
+      old.gain.gain.cancelScheduledValues(t);
+      old.gain.gain.setValueAtTime(old.gain.gain.value, t);
+      old.gain.gain.linearRampToValueAtTime(0, t + 1.8);
+      old.src.stop(t + 1.9);
+      this.track = null;
+    }
+    if (!name) return;
+    const buf = this.buffers.get(name);
+    if (!buf) return;  // still loading; load() applies wantMusic when ready
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 1.2);
+    src.connect(g).connect(this.music); src.start();
+    this.track = { name, src, gain: g };
+  }
+
+  /** Duck music under big moments so the hits read. */
+  duck(amount = 0.4, sec = 0.6) {
+    if (!this.ctx) return;
+    const g = this.music.gain, t = this.ctx.currentTime;
+    g.cancelScheduledValues(t); g.setValueAtTime(0.32 * amount, t); g.linearRampToValueAtTime(0.32, t + sec);
   }
 }

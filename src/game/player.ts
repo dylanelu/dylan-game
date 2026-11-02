@@ -42,7 +42,7 @@ export class Player {
     if (this.state === 'dead' || this.state === 'roll' || this.state === 'recover' || this.state === 'parry') return;
     this.setState('parry');
     this.squash = -0.12;
-    g.audio.play('whiff');
+    g.sfx('whiff', this.x);
   }
 
   tryRoll(g: Game, dx: number, dy: number) {
@@ -57,7 +57,7 @@ export class Player {
     this.vx = this.rollDx * ROLL_SPEED; this.vy = this.rollDy * ROLL_SPEED;
     this.squash = 0.25;
     if (Math.abs(this.rollDx) > 0.2) this.face = Math.sign(this.rollDx);
-    g.audio.play('roll');
+    g.sfx('roll', this.x);
     g.fx.burst(this.x, this.y, 8, { speed: 60, colors: ['#3a3155', '#2a2340'], size: 2, life: 0.4, z: 1, vz: 10, grav: 40, angle: Math.atan2(-this.rollDy, -this.rollDx), spread: 1.6 });
   }
 
@@ -130,7 +130,7 @@ export class Player {
       r: emp ? 5 : 3, dmg: emp ? 22 : 9, team: 'player', parryable: false, life: 0.85, age: 0,
       color: emp ? '#d8a8ff' : '#a45cff', kind: emp ? 'big' : 'dagger', pierce: emp ? 3 : 0, hits: new Set(), source: null,
     });
-    if (emp) { this.empowered--; g.audio.play('shootBig'); g.shake(0.12); } else g.audio.play('shoot');
+    if (emp) { this.empowered--; g.sfx('shootBig', this.x); g.shake(0.12); } else g.sfx('shoot', this.x);
     this.vx -= dx * 18; this.vy -= dy * 18;           // recoil
     g.kick(-dx * (emp ? 3 : 1.5), -dy * (emp ? 3 : 1.5));
     g.fx.light(sx + dx * 10, sy + dy * 10, emp ? 70 : 46, '#b06bff', 1);

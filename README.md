@@ -31,11 +31,12 @@ Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` 
 - `src/engine/renderer.ts`: low-res Canvas2D layers (scene, light, glow, ui) composited by a WebGL2 post shader
   (banded lighting, bloom, chromatic aberration, flashes, vignette, grain)
 - `src/engine/input.ts`: touch gestures and mouse/keyboard, both mapped to the same actions
-- `src/engine/audio.ts`: all sound is synthesized with WebAudio
+- `src/engine/audio.ts`: sample-based mixer (layered events, pitch variation, panning, reverb, muffle, music crossfades)
 - `src/game/game.ts`: loop, combat resolution (`hitPlayer`), juice (hitstop, shake, slow-mo), rendering
 - `src/game/player.ts`, `enemies.ts`, `boss.ts`, `level.ts`, `fx.ts`, `hud.ts`
 
 ## Credits
 
 - Dungeon tiles and monsters: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
+- Audio: Kenney and OpenGameArt CC0 packs, see [public/assets/audio/CREDITS.md](public/assets/audio/CREDITS.md). Rebuild with `tools/audio/fetch.sh` then `tools/audio/build.py`
 - Hero sprite: converted from Dylan's reference art (`tools/hero/`: `fit_grid.py` → `extract.py` → `face_fix.py`)

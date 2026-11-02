@@ -59,6 +59,13 @@ export class Game {
   /** Schedule on game time, so hitstop and slow-mo stretch it like everything else. */
   later(sec: number, fn: () => void) { this.timers.push({ t: sec, fn }); }
 
+  /** Play a sound panned by where it happens on screen. */
+  sfx(name: string, x?: number, vol = 1) {
+    const pan = x === undefined ? 0 : ((x - this.cam.x) / this.r.w - 0.5) * 2;
+    this.audio.play(name, { pan, vol });
+  }
+  private musicCalm = 0;
+
   constructor(public r: Renderer, public input: Input, public audio: Audio, public A: Assets) {
     this.level = new Level(A);
     this.fx = new Fx(this.level.decalCtx);
@@ -102,7 +109,7 @@ export class Game {
     this.fx.ring(e.x, e.y, e.boss ? 70 : 26, '#7a3cff', 0.7, 2);
     this.fx.burst(e.x, e.y, e.boss ? 40 : 12, { speed: 40, colors: ['#7a3cff', '#3a1a80', '#b26bff'], glow: true, grav: -90, vz: 50, life: 0.9, size: 2, drag: 2 });
     this.fx.splat(e.x, e.y, '#120a24', 10, e.boss ? 26 : 10);
-    this.audio.play('spawn');
+    this.sfx('spawn', e.x);
     return e;
   }
 
@@ -151,7 +158,7 @@ export class Game {
       if (phase === 'perfect') { this.perfectParry(fx, fy, o.kind); return 'parried'; }
       // guard: late parry still blocks most of it
       this.damagePlayer(Math.round(dmg * 0.25), src, true);
-      this.audio.play('guard'); this.shake(0.15); this.hitstop(0.04);
+      this.sfx('guard', p.x); this.shake(0.15); this.hitstop(0.04);
       this.fx.burst(fx, fy, 6, { speed: 120, color: '#c8b8e8', glow: true, life: 0.2, grav: 0 });
       this.fx.text(p.x, p.y - 70, 'GUARD', '#a89cc8', 1, 0.5);
       p.setState('normal');
@@ -170,14 +177,14 @@ export class Game {
     p.vx += (dx / l) * 220; p.vy += (dy / l) * 220;
     p.invuln = 0.7; p.flash = 0.1;
     if (p.state === 'parry' || p.state === 'recover') p.setState('normal');
-    this.audio.play('hurt');
+    this.sfx('hurt', p.x); this.audio.muffleFor(0.25, 1400);
     this.hitstop(0.08); this.shake(0.5); this.chroma(1.2); this.flash('#ff1133', 0.22);
     this.fx.burst(p.x, p.y - 30, 14, { speed: 150, colors: ['#8e1b2e', '#5a0f1e'], size: 2, life: 0.6, decal: '#2a0610' });
     this.fx.text(p.x, p.y - 70, `-${dmg}`, '#ff4a6a', 1, 0.7);
     if (p.hp <= 0) {
       p.hp = 0; p.setState('dead'); this.deadT = 0;
       this.slowmo(1.2, 0.25); this.banner('DEFEATED', '#ff3355', 3);
-      this.audio.play('death');
+      this.sfx('playerDeath', p.x); this.audio.muffleFor(2.5, 400); this.audio.setMusic(null);
     }
   }
 
@@ -189,7 +196,7 @@ export class Game {
     p.mana = Math.min(p.maxMana, p.mana + 35);
     p.empowered = Math.min(6, p.empowered + 3);
     this.combo++; this.comboT = 3;
-    this.audio.play('parry');
+    this.sfx('parry', x); this.audio.muffleFor(0.3, 900); this.audio.duck(0.35, 0.5);
     this.hitstop(kind === 'bullet' ? 0.05 : 0.1);
     this.slowmo(0.28, 0.35);
     this.shake(0.3); this.chroma(1.6); this.flash('#ffffff', 0.22); this.zoomPunch(0.035);
@@ -204,6 +211,7 @@ export class Game {
   riposte(e: Enemy, dmg: number) {
     e.parried(this);
     const p = this.player, d = e.dirTo(p.x, p.y);
+    this.sfx('riposte', e.x);
     p.vx += -d.dx * 140; p.vy += -d.dy * 140;   // step into the counter
     this.later(0.07, () => {
       if (e.dead) return;
@@ -220,7 +228,7 @@ export class Game {
     if (e.boss) {
       this.slowmo(2, 0.2); this.flash('#ffffff', 0.5); this.shake(1); this.chroma(2);
       this.banner('GATE CLEARED', '#ffd84a', 3.5);
-      this.audio.play('break');
+      this.sfx('break', e.x); this.audio.setMusic(null);
       this.bullets = this.bullets.filter((b) => b.team === 'player');
       for (let i = 0; i < 6; i++) this.later(i * 0.12, () => {
         this.fx.ring(e.x, e.y - 40, 60 + i * 30, i % 2 ? '#ffd84a' : '#b26bff', 0.6, 3);
@@ -239,7 +247,7 @@ export class Game {
         this.fx.text(e.x, e.y - 48, 'ARISE', '#b26bff', 2, 1);
         this.fx.burst(e.x, e.y, 26, { speed: 30, colors: ['#5a2ccf', '#b26bff', '#1a0a40'], glow: true, grav: -140, vz: 90, life: 1, size: 2, drag: 1 });
         this.fx.ring(e.x, e.y, 30, '#7a3cff', 0.5, 2);
-        this.audio.play('arise');
+        this.sfx('arise', e.x);
       });
     }
   }
@@ -297,6 +305,10 @@ export class Game {
     this.updateHazards(sdt);
     this.enemies = this.enemies.filter((e) => !e.dead);
     this.fx.update(sdt);
+    const hostile = this.enemies.filter((e) => !e.ally).length;
+    if (this.enemies.some((e) => e.boss)) this.audio.setMusic('bossMusic');
+    else if (hostile >= 4) { this.audio.setMusic('waveMusic'); this.musicCalm = 0; }
+    else if (hostile === 0 && (this.musicCalm += sdt) > 4) this.audio.setMusic(null);
     this.comboT -= sdt;
     if (this.comboT <= 0) this.combo = 0;
 
@@ -399,6 +411,7 @@ export class Game {
 
   /** Parried bullets fly back as empowered player shots aimed at whoever fired them. */
   private reflect(b: Bullet) {
+    this.sfx('reflect', b.x);
     b.team = 'player'; b.parryable = false; b.color = '#e8dcff'; b.kind = 'big'; b.dmg = 28; b.pierce = 1; b.life = 1.5;
     b.hits = new Set();
     let tx = b.x - b.vx, ty = b.y - b.vy;

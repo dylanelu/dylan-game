@@ -46,7 +46,7 @@ export class Boss extends Enemy {
     this.setState('stunned');
     this.z = 0;
     this.vx = 0; this.vy = 0;
-    g.audio.play('break');
+    g.sfx('break', this.x); g.audio.muffleFor(0.6, 600);
     g.hitstop(0.18); g.slowmo(0.6, 0.3); g.shake(0.6); g.flash('#ffd84a', 0.3); g.chroma(1.5);
     g.fx.ring(this.x, this.y - 30, 90, '#ffd84a', 0.5, 4);
     g.fx.burst(this.x, this.y - 40, 30, { speed: 220, colors: ['#ffd84a', '#fff2b0'], glow: true, life: 0.6, grav: 100 });
@@ -104,7 +104,7 @@ export class Boss extends Enemy {
         this.steer(0, 0, dt);
         if (this.stateT > 0.3 && !this.roared) {
           this.roared = true;
-          g.audio.play('roar'); g.shake(0.7); g.flash('#ff2244', 0.18); g.chroma(1);
+          g.sfx('roar', this.x); g.shake(0.7); g.flash('#ff2244', 0.18); g.chroma(1);
           g.fx.ring(this.x, this.y - 20, 140, '#ff3355', 0.6, 3);
           g.banner(this.name, '#ff6680', 2.4);
         }
@@ -114,7 +114,7 @@ export class Boss extends Enemy {
       case 'enrage':
         this.steer(0, 0, dt);
         if (this.stateT < dt * 1.5) {
-          g.audio.play('roar'); g.shake(0.9); g.flash('#ff1133', 0.35); g.chroma(2); g.slowmo(0.5, 0.4);
+          g.sfx('roar', this.x); g.shake(0.9); g.flash('#ff1133', 0.35); g.chroma(2); g.slowmo(0.5, 0.4);
           g.banner('THE WARDEN AWAKENS', '#ff3355', 2);
           g.hazard(this.x, this.y, 210, 26, 14);
         }
@@ -127,7 +127,7 @@ export class Boss extends Enemy {
         const isRed = this.step === this.redStep;
         if (this.stateT < dt * 1.5) {
           g.fx.glint(this.x + this.face * 18, this.y - 86, isRed ? RED : WHITE, 11);
-          g.audio.play(isRed ? 'danger' : 'glint');
+          g.sfx(isRed ? 'danger' : 'glint', this.x);
           if (isRed) g.fx.telegraphs.push({ x: this.x, y: this.y, r: 74, t: 0, dur: wind, color: '#ff2244' });
         }
         if (this.stateT < wind * 0.8) { this.steer(d.dx * 30, d.dy * 30, dt); if (Math.abs(d.dx) > 0.15) this.face = Math.sign(d.dx); this.fromX = d.dx; this.fromY = d.dy; }
@@ -137,11 +137,12 @@ export class Boss extends Enemy {
             this.hitThisAttack = true;
             if (isRed) {
               // wide sweep: roll through it
-              g.audio.play('slam'); g.shake(0.4);
+              g.sfx('slam', this.x); g.shake(0.4);
               g.fx.ring(this.x, this.y - 10, 80, '#ff3355', 0.3, 4);
               if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 76 + p.r) g.hitPlayer(this, 26, { parryable: false, kind: 'aoe' });
             } else {
               this.vx = this.fromX * 300 * S; this.vy = this.fromY * 300 * S;
+              g.sfx('swing', this.x);
             }
           }
           if (!isRed && !this.swingResolved && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 30) {
@@ -161,7 +162,7 @@ export class Boss extends Enemy {
 
       case 'burst': {
         this.steer(0, 0, dt);
-        if (this.stateT < dt * 1.5) { g.fx.glint(this.x, this.y - 90, WHITE, 10); g.audio.play('glint'); }
+        if (this.stateT < dt * 1.5) { g.fx.glint(this.x, this.y - 90, WHITE, 10); g.sfx('glint', this.x); }
         g.fx.light(this.x, this.y - 40, 60 + Math.min(1, this.stateT / 0.65) * 80, '#ff3355', 0.9);
         const waves = this.phase === 2 ? 4 : 3;
         for (let w = 0; w < waves; w++) {
@@ -169,7 +170,7 @@ export class Boss extends Enemy {
           if (this.stateT >= at && this.stateT - dt < at) {
             const n = this.phase === 2 ? 22 : 18;
             for (let i = 0; i < n; i++) g.enemyBullet(this.x, this.y - 36, (i / n) * Math.PI * 2 + w * 0.17, 100 + w * 6, { source: this });
-            g.shake(0.2); g.audio.play('enemyShoot', 1.5);
+            g.shake(0.2); g.sfx('enemyShoot', this.x, 1.5);
             g.fx.ring(this.x, this.y - 36, 30, '#ff5577', 0.2, 2);
           }
         }
@@ -179,7 +180,7 @@ export class Boss extends Enemy {
 
       case 'spiral': {
         this.steer(d.dx * 22, d.dy * 22, dt, 2);
-        if (this.stateT < dt * 1.5) { g.fx.glint(this.x, this.y - 90, WHITE, 10); g.audio.play('glint'); }
+        if (this.stateT < dt * 1.5) { g.fx.glint(this.x, this.y - 90, WHITE, 10); g.sfx('glint', this.x); }
         const dur = 2.6;
         if (this.stateT > 0.4 && this.stateT < dur) {
           this.emitT -= dt;
@@ -188,7 +189,7 @@ export class Boss extends Enemy {
             const arms = this.phase === 2 ? 4 : 3;
             for (let k = 0; k < arms; k++) g.enemyBullet(this.x, this.y - 36, this.spiralA + (k * Math.PI * 2) / arms, 112, { source: this });
             this.spiralA += this.phase === 2 ? -0.21 : 0.24;
-            g.audio.play('enemyShoot', 0.6);
+            g.sfx('enemyShoot', this.x, 0.6);
           }
           g.fx.light(this.x, this.y - 36, 70, '#ff3355', 0.8);
         }
@@ -199,7 +200,7 @@ export class Boss extends Enemy {
       case 'leap': {
         const crouch = 0.55 / S, air = 0.62;
         if (this.stateT < dt * 1.5) {
-          g.fx.glint(this.x, this.y - 90, RED, 12); g.audio.play('danger');
+          g.fx.glint(this.x, this.y - 90, RED, 12); g.sfx('danger', this.x);
         }
         if (this.stateT < crouch) {
           this.steer(0, 0, dt);
@@ -214,7 +215,7 @@ export class Boss extends Enemy {
           this.z = Math.sin(k * Math.PI) * 120;
         } else if (this.z > 0 || !this.hitThisAttack) {
           this.z = 0; this.hitThisAttack = true;
-          g.audio.play('slam'); g.shake(0.85); g.chroma(0.8); g.hitstop(0.05);
+          g.sfx('slam', this.x); g.shake(0.85); g.chroma(0.8); g.hitstop(0.05);
           g.fx.burst(this.x, this.y, 30, { speed: 200, colors: ['#3a3155', '#5a4a7a', '#241c38'], size: 2, life: 0.8 });
           g.fx.light(this.x, this.y, 160, '#ff4422', 1);
           g.fx.splat(this.x, this.y, '#0c0818', 30, 30);
@@ -230,7 +231,7 @@ export class Boss extends Enemy {
       case 'charge': {
         const wind = 0.6;
         if (this.stateT < dt * 1.5) {
-          g.fx.glint(this.x, this.y - 90, RED, 12); g.audio.play('danger');
+          g.fx.glint(this.x, this.y - 90, RED, 12); g.sfx('danger', this.x);
           this.chargeDx = d.dx; this.chargeDy = d.dy;
         }
         if (this.stateT < wind) {
