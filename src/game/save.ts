@@ -19,12 +19,14 @@ export interface NightSave {
   chests: { id: number; x: number; y: number }[];
   drops: { x: number; y: number; item: Item }[];
 }
-interface Save { at: number; player: PlayerSave; night: NightSave | null }
+interface Save { at: number; player: PlayerSave; night: NightSave | null; room?: string }
 
 export function saveNight(g: Game) {
   const p = g.player, n = g.night;
+  // only a PvE night in progress is worth resuming (a battle royale can't be rejoined mid-fight)
+  if (g.menu || g.mode !== 'pve') return;
   try {
-    if (n.ended) { localStorage.removeItem(KEY); return; }
+    if (n.ended || p.state === 'dead') { localStorage.removeItem(KEY); return; }
     const s: Save = {
       at: Date.now(),
       player: {
@@ -32,6 +34,7 @@ export function saveNight(g: Game) {
         level: p.level, xp: p.xp, weapon: p.weapon, passives: p.passives, actives: p.actives, relics: p.relics,
       },
       night: g.authority ? n.save() : null,   // a co-op client doesn't own the night
+      room: g.coop?.roomId,
     };
     localStorage.setItem(KEY, JSON.stringify(s));
   } catch { /* private mode / storage full: the night just won't survive a refresh */ }
@@ -39,20 +42,28 @@ export function saveNight(g: Game) {
 
 export function clearSave() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
 
-/** Put back a saved night, if there's a recent one. */
-export function restoreNight(g: Game): boolean {
-  let s: Save;
+function read(): Save | null {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return false;
-    s = JSON.parse(raw) as Save;
-    if (!s.player || Date.now() - s.at > MAX_AGE) { localStorage.removeItem(KEY); return false; }
-  } catch { return false; }
-  const sp = s.player, slot = g.player.slot;
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Save;
+    if (!s.player || Date.now() - s.at > MAX_AGE) { localStorage.removeItem(KEY); return null; }
+    return s;
+  } catch { return null; }
+}
+
+/** Is there a night to resume: solo (no room), or in this room? */
+export function hasSave(room?: string) { const s = read(); return !!s && (s.room ?? '') === (room ?? '') && (!!s.night || !!room); }
+
+/** Put back a saved night, if there's a recent one from the same room (or solo). */
+export function restoreNight(g: Game, room?: string): boolean {
+  const s = read();
+  if (!s || (s.room ?? '') !== (room ?? '')) return false;
+  const sp = s.player, slot = g.player.slot, name = g.player.name, team = g.player.team;
   if (s.night) g.night.load(s.night);
   const p = new Player(sp.x, sp.y);
   Object.assign(p, {
-    slot, hp: sp.hp, maxHp: sp.maxHp, mana: sp.mana, level: sp.level, xp: sp.xp,
+    slot, name, team, hp: sp.hp, maxHp: sp.maxHp, mana: sp.mana, level: sp.level, xp: sp.xp,
     weapon: sp.weapon, passives: sp.passives, actives: sp.actives, relics: sp.relics,
   });
   p.invuln = 2;   // a moment to get your bearings

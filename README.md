@@ -10,8 +10,21 @@ Sekiro parries, Elden Ring rolls and bullet-hell bosses, structured like one Nig
 | Shadow Woods: summoned shadows fight beside you | Titan Walls: hook to the nape | The map: named places, the storm circle |
 |---|---|---|
 | ![Fighting a camp in the woods with two shadow soldiers](docs/media/woods.png) | ![Grappling hook flying at a titan](docs/media/grapple.png) | ![Full map with POI labels](docs/media/map.png) |
-| **The Crimson Warden, phase 2** | **Co-op: up to 6, no server** | |
+| **The Crimson Warden, phase 2** | **Co-op: up to 12, no server** | |
 | ![Boss bullet spiral](docs/media/boss.png) | ![Two players in a camp](docs/media/coop.png) | |
+
+## Modes
+
+You start on the main menu: pick a color and a name, then **PLAY SOLO**, **HOST** or **JOIN**.
+
+- **PvE**: the night below, alone or with up to 11 friends.
+- **Battle royale**: solo, duos, trios or squads (up to 12 players). Same map, camps and area bosses for loot
+  and XP, but player shots hit other teams (never your own), the storm closes to nothing, and there's no coming
+  back: the dead spectate a teammate. Last team standing wins. Parry an enemy player's shot and it flies back at them.
+
+Hosting makes a lobby with a room code and an invite link. Make it **PUBLIC** and it shows up in everyone's
+**JOIN** list. The host picks the mode and team size, can tap a player to move them to another team, and presses
+**START**. After a match, **PLAY AGAIN** brings everyone back to the lobby.
 
 ## A night
 
@@ -62,26 +75,32 @@ Every push to `main` deploys to GitHub Pages (`.github/workflows/pages.yml`): ht
 | Roll | flick with a second finger | Space / Shift |
 | Items | tap or drag the two item buttons | Q / E |
 | Map | tap the minimap | M |
-| Pause | II button | Esc / P |
+| Menu / pause | II button (top left) | Esc / P |
 
 Perfect parry (first 0.15s): staggers normal enemies with a counter-strike, reflects bullets, refills mana and
 charges empowered shots. Enemies killed by a counter-strike rise as shadow soldiers. Every attack can be
 parried. A white glint is a normal attack; a red glint is heavy: perfect-parry it for a bigger payoff (a late guard
 chips hard), or roll through it. Parrying the boss fills its posture bar; a full bar breaks it open.
 
-Sandbox (spawns near you): `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` god mode, `H` hitboxes. `R` starts a new night after one ends.
+Solo pauses behind the menu; with others the match keeps going. Dev shortcuts (spawn near you): `1` ghouls,
+`2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` god mode, `H` hitboxes.
 
-## Co-op (up to 6, no server)
+## Multiplayer (up to 12, no server)
 
-Press **Co-op** to create a room; the invite link is copied (`…/#room=CODE`). Friends open it and drop in.
 Peers find each other through public Nostr relays via [Trystero](https://github.com/dmotz/trystero), then all
-traffic is direct WebRTC, so it works from GitHub Pages with no backend.
+traffic is direct WebRTC, so it works from GitHub Pages with no backend. An invite link (`…/#room=CODE`) drops
+you straight into that lobby.
 
-- The earliest joiner hosts: enemies, the boss and enemy bullets run there and stream out at 15 Hz.
+- The earliest joiner hosts: the lobby settings, enemies, the boss and enemy bullets run there; enemies stream out at 15 Hz.
 - Everyone simulates their own character, so movement and parry timing never wait on the network. Attacks on a
-  remote player are resolved on that player's machine, with a little lag compensation on the parry window.
-- If the host leaves, the next player in line takes over the enemies.
-- Test locally with two players in one page: `npm run dev`, then open `/dev/coop.html`.
+  remote player are resolved on that player's machine, with a little lag compensation on the parry window. In
+  battle royale that includes other players' shots (each machine checks enemy shots against its own hunter) and
+  melee strikes (`Game.strikePlayers`).
+- If the host leaves, the next player in line takes over the enemies and the lobby.
+- Public lobby list: hosts of public lobbies join one well-known Trystero room (`lobbies`) and broadcast a small
+  ad every 2 s; the JOIN screen listens there and drops lobbies not heard from for 10 s.
+- Test locally with two players in one page: `npm run dev`, then open `/dev/coop.html` (add `?mode=pve` or
+  `?mode=br` to have the host start as soon as the second player is in).
 
 ## Code map
 
@@ -97,11 +116,13 @@ traffic is direct WebRTC, so it works from GitHub Pages with no backend.
 - `src/game/night.ts`: the night's clock, storm, camps, mini-bosses, chests, the gate; `src/game/items.ts`: loot tables
 - `src/game/bosses.ts`: the area bosses (Shadow Knight, Toji, Armored Titan) and titans; `boss.ts`: the Crimson Warden
 - `src/game/player.ts` (incl. the grappling hook), `enemies.ts`, `fx.ts`, `hud.ts` (item buttons, full map)
-- `src/net/net.ts`: Trystero room, join order, host election; `src/net/coop.ts`: what's synced and how
+- `src/ui/menu.ts`: main menu, join list, lobby, pause and end screens (DOM, drawn in the game's pixel font)
+- `src/net/net.ts`: Trystero room, join order, host election; `src/net/coop.ts`: what's synced and how;
+  `src/net/lobby.ts`: lobby settings, team balancing, public lobby discovery
 
 ## Credits
 
 - Dungeon tiles, monsters and the hero base: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
 - Overworld tiles, trees, towers, samurai and item icons: [Ninja Adventure](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy and AAA, CC0
-- Audio: Kenney and OpenGameArt CC0 packs, see [public/assets/audio/CREDITS.md](public/assets/audio/CREDITS.md). Rebuild with `tools/audio/fetch.sh` then `tools/audio/build.py`
+- Audio: Kenney, OpenGameArt and Ninja Adventure (jingles) CC0 packs, see [public/assets/audio/CREDITS.md](public/assets/audio/CREDITS.md). Rebuild with `tools/audio/fetch.sh` then `tools/audio/build.py`
 - Hero: 0x72's elf, recolored and hand-edited into Dylan with six co-op color variants (`dylanize` in `src/game/assets.ts`)

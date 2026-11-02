@@ -1,4 +1,4 @@
-// Serverless co-op over WebRTC. Trystero finds peers through public Nostr relays (no server of our own),
+// Serverless multiplayer over WebRTC. Trystero finds peers through public Nostr relays (no server of our own),
 // then all game traffic goes peer-to-peer. Works from a static GitHub Pages site.
 //
 // Roles: the earliest joiner is the host and runs enemies, the boss and enemy bullets. Everyone simulates
@@ -6,13 +6,15 @@
 
 import { joinRoom, selfId } from 'trystero';
 
-export const MAX_PLAYERS = 6;
-const APP_ID = 'shadow-gate.dylanelu.v1';
+export const MAX_PLAYERS = 12;
+export const APP_ID = 'shadow-gate.dylanelu.v1';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Wire = any;   // plain JSON objects; shapes are documented where they're built in game.ts
 
-interface Peer { id: string; joinedAt: number }
+/** Who you are to everyone else: picked on the main menu, sent once in the hello. */
+export interface Me { name: string; look: number }
+export interface Peer extends Me { id: string; joinedAt: number }
 
 export class Net {
   readonly selfId = selfId;
@@ -20,6 +22,7 @@ export class Net {
   readonly peers = new Map<string, Peer>();
   private room: ReturnType<typeof joinRoom>;
   private aHello; private aPlayer; private aSnap; private aEvt;
+  private left = false;
 
   onPeersChanged: () => void = () => {};
   onPlayer: (state: Wire, from: string) => void = () => {};
@@ -27,18 +30,21 @@ export class Net {
   onEvt: (evt: Wire, from: string) => void = () => {};
   onLeave: (id: string) => void = () => {};
 
-  constructor(readonly roomId: string) {
+  constructor(readonly roomId: string, readonly me: Me) {
     this.room = joinRoom({ appId: APP_ID }, roomId);
     this.aHello = this.room.makeAction<Wire>('hello');
     this.aPlayer = this.room.makeAction<Wire>('pl');
     this.aSnap = this.room.makeAction<Wire>('snap');
     this.aEvt = this.room.makeAction<Wire>('evt');
-    this.room.onPeerJoin = (id) => { void this.aHello.send({ joinedAt: this.joinedAt }, { target: id }); };
-    this.room.onPeerLeave = (id) => { this.peers.delete(id); this.onLeave(id); this.onPeersChanged(); };
-    this.aHello.onMessage = (d, { peerId }) => { this.peers.set(peerId, { id: peerId, joinedAt: d.joinedAt }); this.onPeersChanged(); };
-    this.aPlayer.onMessage = (d, { peerId }) => this.onPlayer(d, peerId);
+    this.room.onPeerJoin = (id) => { void this.aHello.send({ joinedAt: this.joinedAt, name: me.name, look: me.look }, { target: id }); };
+    this.room.onPeerLeave = (id) => { if (!this.peers.delete(id)) return; this.onLeave(id); this.onPeersChanged(); };
+    this.aHello.onMessage = (d, { peerId }) => {
+      this.peers.set(peerId, { id: peerId, joinedAt: d.joinedAt, name: String(d.name ?? '').slice(0, 12), look: (d.look | 0) % 6 });
+      this.onPeersChanged();
+    };
+    this.aPlayer.onMessage = (d, { peerId }) => { if (this.peers.has(peerId)) this.onPlayer(d, peerId); };
     this.aSnap.onMessage = (d, { peerId }) => this.onSnap(d, peerId);
-    this.aEvt.onMessage = (d, { peerId }) => this.onEvt(d, peerId);
+    this.aEvt.onMessage = (d, { peerId }) => { if (this.peers.has(peerId)) this.onEvt(d, peerId); };
   }
 
   /** Everyone in join order, self included. The same list on every machine once hellos are exchanged. */
@@ -49,18 +55,28 @@ export class Net {
   }
   get hostId() { return this.order[0]; }
   get isHost() { return this.hostId === this.selfId; }
-  /** Color / look slot for a peer: their position in join order. */
-  slotOf(id: string) { return Math.min(MAX_PLAYERS - 1, Math.max(0, this.order.indexOf(id))); }
+  /** Display name for a peer id (self included). */
+  nameOf(id: string) { return id === this.selfId ? this.me.name : this.peers.get(id)?.name ?? '?'; }
+  lookOf(id: string) { return id === this.selfId ? this.me.look : this.peers.get(id)?.look ?? 0; }
+  /** Past the cap: the 13th joiner (in join order) sits out. */
   get full() { return this.order.indexOf(this.selfId) >= MAX_PLAYERS; }
 
-  sendPlayer(s: Wire) { void this.aPlayer.send(s); }
-  sendSnap(s: Wire) { void this.aSnap.send(s); }
-  sendEvt(e: Wire, target?: string) { void this.aEvt.send(e, target ? { target } : undefined); }
-  leave() { void this.room.leave(); }
+  sendPlayer(s: Wire) { if (!this.left) void this.aPlayer.send(s); }
+  sendSnap(s: Wire) { if (!this.left) void this.aSnap.send(s); }
+  sendEvt(e: Wire, target?: string) { if (!this.left) void this.aEvt.send(e, target ? { target } : undefined); }
+  /** Leave for good: stop reacting to anything still in flight, then close every connection. */
+  leave() {
+    if (this.left) return;
+    this.left = true;
+    this.onPeersChanged = this.onLeave = () => {};
+    this.onPlayer = this.onSnap = this.onEvt = () => {};
+    this.peers.clear();
+    void this.room.leave();
+  }
 }
 
 /** Short, readable room codes (no 0/O/1/I confusion). */
+export const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export function makeRoomCode() {
-  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 5 }, () => A[Math.floor(Math.random() * A.length)]).join('');
+  return Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 }

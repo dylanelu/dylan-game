@@ -166,6 +166,9 @@ export class Renderer {
     this.ui.ctx.imageSmoothingEnabled = false;
   }
 
+  /** CSS px per native px: ~3 on a desktop monitor, ~1 on a phone. The HUD sizes itself from it. */
+  get cssPx() { return this.scale / this.dpr; }
+
   clientToNative(cx: number, cy: number) {
     return { x: (cx * this.dpr) / this.scale, y: (cy * this.dpr) / this.scale };
   }
