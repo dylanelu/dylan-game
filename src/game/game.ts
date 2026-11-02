@@ -556,9 +556,12 @@ export class Game {
     const p = this.player;
     if (!e.ally && Math.hypot(p.x - e.x, p.y - e.y) < 700) this.gainXp(this.xpFor(e));
     if (e instanceof Boss && !e.final) {
-      // an area boss: its unique reward, plus good loot
-      if (e.reward) this.night.spill([e.reward, ...rollLoot('miniboss')], e.x, e.y);
+      // an area boss: its unique reward goes straight to every hunter in the night, wherever they are (every
+      // machine runs this kill for its own player); the usual loot still spills where it fell
+      this.night.spill(rollLoot('miniboss'), e.x, e.y);
       this.banner(`${e.name} FALLS`, '#ffd84a', 2);
+      const reward = e.reward;
+      if (reward) this.later(1.6, () => this.pickup(reward));
       this.slowmo(0.8, 0.3); this.flash('#ffffff', 0.3); this.shake(0.6);
       return;
     }
@@ -852,6 +855,7 @@ export class Game {
     const old = this.player, p = new Player(at.x, at.y);
     // you keep your level and gear; you come back at half health
     p.slot = old.slot; p.level = old.level; p.xp = old.xp; p.weapon = old.weapon; p.passives = old.passives;
+    p.actives = old.actives; p.relics = old.relics;
     p.maxHp = old.maxHp; p.hp = Math.round(old.maxHp / 2);
     this.player = p;
     p.slot = this.player.slot;

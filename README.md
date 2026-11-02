@@ -27,6 +27,7 @@ About 10 minutes on one big fixed outdoor map (the same layout every run), Fortn
 1. Drop in somewhere on the rim.
 2. Clear camps and the named places to level up and find gear. Cleared camps leave a chest. Loot is sparse and
    stands in a beam of its rarity color. Area bosses guard their ground and walk home if you run.
+   In co-op, a boss's unique reward goes to every player, wherever they are.
 3. The shadow storm closes in stages toward Arise Arena; standing in it hurts more as the night goes on.
 4. At 9:00 the gate opens: anyone outside is pulled in and the Crimson Warden rises. Kill it to clear the night.
 
