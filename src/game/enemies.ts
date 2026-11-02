@@ -1,7 +1,7 @@
 import type { Anim } from './assets';
 import type { Game } from './game';
 
-export type EnemyKind = 'ghoul' | 'caster' | 'brute' | 'boss' | 'shadow';
+export type EnemyKind = 'ghoul' | 'caster' | 'brute' | 'boss' | 'shadow' | 'titan' | 'atitan' | 'knight' | 'toji';
 
 const WHITE = '#ffffff', RED = '#ff3355';
 
@@ -402,6 +402,8 @@ export class Shadow extends Enemy {
   life = 12;
   cd = 0;
   target: Enemy | null = null;
+  /** summoned by: a peer id, or null for the host's own player */
+  owner: string | null = null;
   constructor(anim: Anim, x: number, y: number, animName = '') {
     super(x, y);
     this.anim = anim; this.ally = true; this.shadowAnim = animName; this.r = 8; this.spawnTime = 0.6;
@@ -421,8 +423,9 @@ export class Shadow extends Enemy {
         if (d < best) { best = d; this.target = e; }
       }
     }
-    const tx = this.target ? this.target.x : g.player.x - g.player.face * 26;
-    const ty = this.target ? this.target.y : g.player.y + 6;
+    const lead = g.ownerOf(this.owner);
+    const tx = this.target ? this.target.x : lead.x - lead.face * 26;
+    const ty = this.target ? this.target.y : lead.y + 6;
     const d = this.dirTo(tx, ty);
     if (Math.abs(d.dx) > 0.1) this.face = Math.sign(d.dx);
     if (this.target && d.d < this.r + this.target.r + 6 && this.cd <= 0) {

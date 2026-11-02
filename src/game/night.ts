@@ -9,7 +9,7 @@ import { TILE, type Room } from './world';
 export const NIGHT_LENGTH = 600;
 export const BOSS_AT = 540;
 /** [time (s), storm radius (px)]: holds, then shrinks; interpolated between keys */
-const STORM: [number, number][] = [[0, 2900], [120, 2900], [180, 1750], [290, 1750], [350, 1050], [440, 1050], [500, 560], [BOSS_AT, 560], [NIGHT_LENGTH, 420]];
+const STORM: [number, number][] = [[0, 3800], [120, 3800], [180, 2400], [290, 2400], [350, 1400], [440, 1400], [500, 620], [BOSS_AT, 620], [NIGHT_LENGTH, 340]];
 
 interface Camp { room: Room; state: 'dormant' | 'active' | 'cleared'; ids: number[] }
 export interface Chest { id: number; x: number; y: number; opened: boolean; t: number }
@@ -38,10 +38,11 @@ export class Night {
     const w = g.level, rand = rng(seed);
     // drop rooms stay quiet so nobody lands in a fight
     for (const r of w.rooms) if (r.kind === 'camp') this.camps.set(r.id, { room: r, state: 'dormant', ids: [] });
-    // three of the six mini-boss arenas are occupied tonight
-    const mbs = w.rooms.filter((r) => r.kind === 'miniboss').sort(() => rand() - 0.5).slice(0, 3);
+    // every named place has its boss, each guarding a unique reward
+    const mbs = w.rooms.filter((r) => r.kind === 'miniboss');
     this.activeMb = new Set(mbs.map((r) => r.id));
     for (const r of mbs) this.camps.set(r.id, { room: r, state: 'dormant', ids: [] });
+    void rand;
   }
 
   get cx() { return this.g.level.arena.cx; }
@@ -63,10 +64,10 @@ export class Night {
   get closing() { return this.stormAt(this.t + 1) < this.stormR - 0.1; }
   outside(x: number, y: number) { return Math.hypot(x - this.cx, y - this.cy) > this.stormR; }
 
-  /** Pick the squad's drop point: a quiet room on the rim. */
+  /** Pick the squad's drop point: open ground somewhere on the rim. */
   dropPoint(rand = Math.random) {
-    const rooms = this.g.level.rooms.filter((r) => r.kind === 'spawn');
-    return this.g.level.spotIn(rooms[Math.floor(rand() * rooms.length)], rand);
+    const s = this.g.level.spawns;
+    return { ...s[Math.floor(rand() * s.length)] };
   }
 
   update(dt: number) {
@@ -130,18 +131,16 @@ export class Night {
     const g = this.g, r = camp.room;
     camp.state = 'active';
     if (r.kind === 'miniboss') {
-      const pos = g.level.spotIn(r);
-      const e = g.spawn('brute', pos.x, pos.y, r.level, true);
+      const kind: EnemyKind = r.boss === 'toji' ? 'toji' : r.boss === 'armoredTitan' ? 'atitan' : 'knight';
+      const e = g.spawn(kind, r.cx, r.cy, r.level);
       camp.ids.push(e.id);
-      g.banner('ORC WARLORD', '#ff6680', 2);
-      g.sfx('roar', e.x);
       return;
     }
     const area = (r.x1 - r.x0) * (r.y1 - r.y0);
-    const n = Math.min(7, 3 + Math.floor(area / 45));
+    const n = r.titans ? 4 : Math.min(7, 3 + Math.floor(area / 45));
     for (let i = 0; i < n; i++) {
       const roll = Math.random();
-      const kind: EnemyKind = roll < 0.55 ? 'ghoul' : roll < 0.85 || r.level < 3 ? 'caster' : 'brute';
+      const kind: EnemyKind = r.titans && i < 2 ? 'titan' : roll < 0.55 ? 'ghoul' : roll < 0.85 || r.level < 3 ? 'caster' : 'brute';
       const pos = g.level.spotIn(r);
       g.later(i * 0.12, () => { const e = g.spawn(kind, pos.x, pos.y, r.level + (Math.random() < 0.25 ? 1 : 0)); camp.ids.push(e.id); });
       camp.ids.push(-1 - i);   // placeholder so the camp isn't "cleared" before its wave finishes spawning

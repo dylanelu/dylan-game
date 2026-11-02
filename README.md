@@ -7,22 +7,38 @@ Sekiro parries, Elden Ring rolls and bullet-hell bosses, structured like one Nig
 
 ![Gameplay: clearing a camp with shots, parries and rolls](docs/media/gameplay.webp)
 
-| The shadow storm closes in; gear stands in a beam of its rarity | The Crimson Warden, phase 2 | Co-op: up to 6, no server |
+| Shadow Woods: summoned shadows fight beside you | Titan Walls: hook to the nape | The map: named places, the storm circle |
 |---|---|---|
-| ![Storm edge, loot beams, minimap](docs/media/storm.png) | ![Boss bullet spiral](docs/media/boss.png) | ![Two players in a camp](docs/media/coop.png) |
+| ![Fighting a camp in the woods with two shadow soldiers](docs/media/woods.png) | ![Grappling hook flying at a titan](docs/media/grapple.png) | ![Full map with POI labels](docs/media/map.png) |
+| **The Crimson Warden, phase 2** | **Co-op: up to 6, no server** | |
+| ![Boss bullet spiral](docs/media/boss.png) | ![Two players in a camp](docs/media/coop.png) | |
 
 ## A night
 
-About 10 minutes on one huge fixed map (the same layout every run):
+About 10 minutes on one big fixed outdoor map (the same layout every run), Fortnite-style named places:
 
-1. Drop into a quiet room on the rim.
-2. Clear camps and the night's three active mini-boss arenas (Orc Warlords) to level up and find gear. Cleared camps
-   leave a chest. Loot is sparse and stands in a beam of its rarity color.
-3. The shadow storm closes in stages toward the gate at the center; standing in it hurts more as the night goes on.
-4. At 9:00 the gate opens: anyone outside is pulled in and the Crimson Warden rises. Kill it to clear the gate.
+| Place | What's there | Beat its boss for |
+|---|---|---|
+| **Arise Arena** | the old dungeon at the center; the Shadow Knight waits in its north hall | **Shadow Summon**: raise two shadow soldiers (mana) |
+| **Gojo Gate** → **Toji Towers** | a walled courtyard that opens into the fortress; Toji holds the inner keep | **Boundless**: unlimited mana |
+| **Titan Walls** | a ring wall in the south-west with titan camps; the Armored Titan guards it | **Grappling Hook**: zip to walls, trees and foes |
+| Shadow Woods, Mirror Lake, Ruined Village, the fields | camps, chests, roads | gear and flasks |
+
+1. Drop in somewhere on the rim.
+2. Clear camps and the named places to level up and find gear. Cleared camps leave a chest. Loot is sparse and
+   stands in a beam of its rarity color. Area bosses guard their ground and walk home if you run.
+3. The shadow storm closes in stages toward Arise Arena; standing in it hurts more as the night goes on.
+4. At 9:00 the gate opens: anyone outside is pulled in and the Crimson Warden rises. Kill it to clear the night.
 
 Enemy levels are hidden. The marker over an enemy says how bad it is for you: white is a fair fight, red is well
 above you, a purple skull means you will die. Solo gets one revival per night; in co-op you come back beside a teammate.
+
+### Items
+
+Active items fill two slots and cost mana. Desktop: `Q` / `E` (aimed at the cursor). Phone: two thumb buttons at the
+bottom right; tap to use (aims at the nearest foe), or drag off the button to aim and release to fire.
+The grappling hook pulls you to whatever it bites; reaching a foe ends in a spinning cut, and on a titan it's a
+nape strike for triple damage that ignores armor. Relics like Boundless are passive.
 
 ## Run
 
@@ -42,6 +58,8 @@ Every push to `main` deploys to GitHub Pages (`.github/workflows/pages.yml`): ht
 | Parry | release that thumb | right click (or K) |
 | Shoot | tap or hold anywhere else | left click toward the cursor |
 | Roll | flick with a second finger | Space / Shift |
+| Items | tap or drag the two item buttons | Q / E |
+| Map | tap the minimap | M |
 | Pause | II button | Esc / P |
 
 Perfect parry (first 0.15s): staggers normal enemies with a counter-strike, reflects bullets, refills mana and
@@ -73,13 +91,15 @@ traffic is direct WebRTC, so it works from GitHub Pages with no backend.
 - `src/engine/input.ts`: touch gestures and mouse/keyboard, both mapped to the same actions
 - `src/engine/audio.ts`: sample-based mixer (layered events, pitch variation, panning, reverb, muffle, music crossfades)
 - `src/game/game.ts`: loop, combat resolution (`hitPlayer`), progression, juice (hitstop, shake, slow-mo), rendering
-- `src/game/world.ts`: the fixed map (rooms, corridors, autotiled walls, chunked drawing, minimap)
+- `src/game/world.ts`: the fixed outdoor map (terrain, named places, roads, props, autotiled walls, chunked drawing, minimap)
 - `src/game/night.ts`: the night's clock, storm, camps, mini-bosses, chests, the gate; `src/game/items.ts`: loot tables
-- `src/game/player.ts`, `enemies.ts`, `boss.ts`, `fx.ts`, `hud.ts`
+- `src/game/bosses.ts`: the area bosses (Shadow Knight, Toji, Armored Titan) and titans; `boss.ts`: the Crimson Warden
+- `src/game/player.ts` (incl. the grappling hook), `enemies.ts`, `fx.ts`, `hud.ts` (item buttons, full map)
 - `src/net/net.ts`: Trystero room, join order, host election; `src/net/coop.ts`: what's synced and how
 
 ## Credits
 
-- Dungeon tiles and monsters: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
+- Dungeon tiles, monsters and the hero base: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
+- Overworld tiles, trees, towers, samurai and item icons: [Ninja Adventure](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy and AAA, CC0
 - Audio: Kenney and OpenGameArt CC0 packs, see [public/assets/audio/CREDITS.md](public/assets/audio/CREDITS.md). Rebuild with `tools/audio/fetch.sh` then `tools/audio/build.py`
-- Hero sprite: converted from Dylan's reference art (`tools/hero/`: `fit_grid.py` → `extract.py` → `face_fix.py`)
+- Hero: 0x72's elf, recolored and hand-edited into Dylan with six co-op color variants (`dylanize` in `src/game/assets.ts`)

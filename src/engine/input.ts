@@ -2,12 +2,14 @@ import type { Renderer } from './renderer';
 
 // Touch: first finger on the left side is a floating joystick (drag = move, release = parry).
 // Any other finger fires toward where it touches; a fast flick with it rolls that way.
-// Mouse/keyboard: WASD move, LMB fire at cursor, RMB parry, Space/Shift roll.
+// Mouse/keyboard: WASD move, LMB fire at cursor, RMB parry, Space/Shift roll, Q/E use the two item slots.
+// Item buttons (touch): tap to use with auto-aim, or drag from the button to aim and release to fire.
 
 export type InputEvent =
   | { type: 'parry' }
   | { type: 'roll'; dx: number; dy: number }
-  | { type: 'key'; key: string };
+  | { type: 'key'; key: string }
+  | { type: 'item'; slot: number; dx: number; dy: number; dragged: boolean };
 
 interface GunTouch { sx: number; sy: number; t0: number; rolled: boolean }
 
@@ -20,6 +22,12 @@ export class Input {
   aim = { x: 0, y: 0 };         // native screen coords
   device: 'mouse' | 'touch' = 'mouse';
   joy: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
+  /** an item button being dragged to aim (touch), in native screen px */
+  itemDrag: { id: number; slot: number; ox: number; oy: number; x: number; y: number } | null = null;
+  /** set by the HUD: which item button (0/1) is at a native screen point, or -1 */
+  buttonAt: (x: number, y: number) => number = () => -1;
+  /** set by the HUD: the full-map toggle area */
+  mapAt: (x: number, y: number) => boolean = () => false;
   events: InputEvent[] = [];
   private keys = new Set<string>();
   private guns = new Map<number, GunTouch>();
@@ -56,6 +64,8 @@ export class Input {
       this.events.push({ type: 'roll', dx: 0, dy: 0 });
     } else if (e.code === 'KeyK') {
       this.events.push({ type: 'parry' });
+    } else if (e.code === 'KeyQ' || e.code === 'KeyE') {
+      this.events.push({ type: 'item', slot: e.code === 'KeyQ' ? 0 : 1, dx: 0, dy: 0, dragged: false });
     } else {
       this.events.push({ type: 'key', key: e.code });
     }
@@ -76,6 +86,12 @@ export class Input {
     this.gesture();
     this.device = 'mouse';
     this.aim = this.r.clientToNative(e.clientX, e.clientY);
+    // clicking an on-screen item button or the minimap uses it instead of firing
+    if (down && e.button === 0) {
+      const slot = this.buttonAt(this.aim.x, this.aim.y);
+      if (slot >= 0) { this.events.push({ type: 'item', slot, dx: 0, dy: 0, dragged: false }); return; }
+      if (this.mapAt(this.aim.x, this.aim.y)) { this.events.push({ type: 'key', key: 'KeyM' }); return; }
+    }
     if (e.button === 0) { this.mouseDown = down; this.firing = down; }
     if (e.button === 2 && down) this.events.push({ type: 'parry' });
   }
@@ -88,6 +104,9 @@ export class Input {
     for (const t of Array.from(e.changedTouches)) {
       const p = this.r.clientToNative(t.clientX, t.clientY);
       if (phase === 'start') {
+        const slot = this.buttonAt(p.x, p.y);
+        if (slot >= 0 && !this.itemDrag) { this.itemDrag = { id: t.identifier, slot, ox: p.x, oy: p.y, x: p.x, y: p.y }; continue; }
+        if (this.mapAt(p.x, p.y)) { this.events.push({ type: 'key', key: 'KeyM' }); continue; }
         if (!this.joy && t.clientX < innerWidth * 0.45) {
           this.joy = { id: t.identifier, ox: p.x, oy: p.y, x: p.x, y: p.y };
         } else {
@@ -95,6 +114,7 @@ export class Input {
           this.aim = p;
         }
       } else if (phase === 'move') {
+        if (this.itemDrag && t.identifier === this.itemDrag.id) { this.itemDrag.x = p.x; this.itemDrag.y = p.y; continue; }
         if (this.joy && t.identifier === this.joy.id) {
           this.joy.x = p.x; this.joy.y = p.y;
           const radius = 22; // native px for full speed
@@ -117,6 +137,12 @@ export class Input {
           }
         }
       } else {
+        if (this.itemDrag && t.identifier === this.itemDrag.id) {
+          const d = this.itemDrag, dx = d.x - d.ox, dy = d.y - d.oy;
+          this.events.push({ type: 'item', slot: d.slot, dx, dy, dragged: Math.hypot(dx, dy) > 10 });
+          this.itemDrag = null;
+          continue;
+        }
         if (this.joy && t.identifier === this.joy.id) {
           this.joy = null;
           this.move = { x: 0, y: 0 };

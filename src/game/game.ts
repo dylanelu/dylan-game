@@ -4,12 +4,13 @@ import type { PostParams, Renderer } from '../engine/renderer';
 import type { Coop } from '../net/coop';
 import { HERO_LOOKS, type Assets } from './assets';
 import { Boss } from './boss';
+import { ArmoredTitan, ShadowKnight, Titan, Toji } from './bosses';
 import { Brute, Caster, Enemy, Ghoul, Shadow, type EnemyKind } from './enemies';
 import { Fx } from './fx';
 import { drawText, textWidth } from './font';
-import { PASSIVES, RARITY, rollLoot, WEAPONS, xpToNext, type Item } from './items';
+import { ACTIVES, PASSIVES, RARITY, RELICS, rollLoot, WEAPONS, xpToNext, type Item } from './items';
 import { Night } from './night';
-import { drawHud } from './hud';
+import { drawHud, hudHit } from './hud';
 import { TILE, World } from './world';
 import { PARRY_PERFECT, Player } from './player';
 
@@ -63,6 +64,9 @@ export class Game {
   kills = 0;
   renderDt = 1 / 60;
   paused = false;
+  private indoorK = 0;
+  lastPoi: string | null = null;
+  mapOpen = false;
   /** co-op session (null when playing solo) and the other players' characters */
   coop: Coop | null = null;
   remotes = new Map<string, Player>();
@@ -140,8 +144,16 @@ export class Game {
 
   makeEnemy(kind: EnemyKind, x: number, y: number, shadowAnim = '', elite = false): Enemy {
     if (kind === 'shadow') return new Shadow(this.A.anim(shadowAnim || 'masked_orc_idle_anim'), x, y, shadowAnim);
-    return kind === 'ghoul' ? new Ghoul(this, x, y) : kind === 'caster' ? new Caster(this, x, y)
-      : kind === 'brute' ? new Brute(this, x, y, elite) : new Boss(this, x, y);
+    switch (kind) {
+      case 'ghoul': return new Ghoul(this, x, y);
+      case 'caster': return new Caster(this, x, y);
+      case 'brute': return new Brute(this, x, y, elite);
+      case 'titan': return new Titan(this, x, y);
+      case 'knight': return new ShadowKnight(this, x, y);
+      case 'toji': return new Toji(this, x, y);
+      case 'atitan': return new ArmoredTitan(this, x, y);
+      default: return new Boss(this, x, y);
+    }
   }
 
   /** gate portal an enemy rises out of */
@@ -360,6 +372,19 @@ export class Game {
     this.sfx('select', p.x); this.sfx('reflect', p.x, 0.4);
     this.fx.burst(p.x, p.y - Player.CHEST, 14, { speed: 80, color, glow: true, life: 0.5, grav: -60 });
     if (it.kind === 'flask') { p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.35)); return; }
+    if (it.kind === 'active') {
+      if (p.actives.includes(it.key)) { this.gainXp(60); return; }
+      const slot = p.actives.indexOf(null);
+      if (slot >= 0) p.actives[slot] = it.key;
+      else { this.night.spill([{ kind: 'active', key: p.actives[1]!, rarity: 3 }], p.x + 14, p.y); p.actives[1] = it.key; }
+      this.banner(`${ACTIVES[it.key].name}  ${this.input.device === 'touch' ? 'TAP' : slot === 0 || slot < 0 ? 'Q' : 'E'}`, ACTIVES[it.key].color, 2.4);
+      return;
+    }
+    if (it.kind === 'relic') {
+      if (!p.relics.includes(it.key)) p.relics.push(it.key);
+      this.banner(`${RELICS[it.key].name}: ${RELICS[it.key].desc}`, RELICS[it.key].color, 2.6);
+      return;
+    }
     if (it.kind === 'weapon') {
       if (p.weapon.key !== 'dagger') this.night.spill([{ kind: 'weapon', key: p.weapon.key, rarity: p.weapon.rarity }], p.x + 14, p.y);
       p.weapon = { key: it.key, rarity: it.rarity };
@@ -372,9 +397,136 @@ export class Game {
   toastText = ''; toastColor = '#fff'; toastT = 9;
   toast(text: string, color: string) { this.toastText = text; this.toastColor = color; this.toastT = 0; }
 
+  // ------------------------------------------------------------------ items
+
+  /** Use the item in a slot. Aim: a drag from its button, else the cursor, else the nearest foe ahead. */
+  useItem(slot: number, dx: number, dy: number, dragged: boolean) {
+    const p = this.player, key = p.actives[slot];
+    if (p.state === 'dead' || p.state === 'grapple') return;
+    if (!key) { this.toast('EMPTY SLOT', '#8a7ab8'); return; }
+    const def = ACTIVES[key];
+    if ((p.cooldowns[key] ?? 0) > 0) { this.sfx('whiff', p.x, 0.6); return; }
+    const cost = p.boundless ? 0 : def.cost;
+    if (p.mana < cost) { this.fx.text(p.x, p.y - Player.HEAD - 10, 'NO MANA', '#8a7ab8', 1, 0.5); this.sfx('whiff', p.x, 0.6); return; }
+    let ax: number, ay: number;
+    if (dragged) { const l = Math.hypot(dx, dy) || 1; ax = dx / l; ay = dy / l; }
+    else if (this.input.device === 'mouse') { const l = Math.hypot(p.aimX - p.x, p.aimY - (p.y - Player.CHEST)) || 1; ax = (p.aimX - p.x) / l; ay = (p.aimY - (p.y - Player.CHEST)) / l; }
+    else {
+      const foe = this.enemies.filter((e) => !e.ally && !e.dead && e.state !== 'spawn').sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+      if (foe && Math.hypot(foe.x - p.x, foe.y - p.y) < 300) { const l = Math.hypot(foe.x - p.x, foe.y - p.y) || 1; ax = (foe.x - p.x) / l; ay = (foe.y - p.y) / l; }
+      else { const l = Math.hypot(p.vx, p.vy); ax = l > 10 ? p.vx / l : p.face; ay = l > 10 ? p.vy / l : 0; }
+    }
+    p.mana -= cost; p.manaDelay = 0.5;
+    p.cooldowns[key] = def.cooldown;
+    if (key === 'summon') this.summon();
+    if (key === 'grapple') this.fireHook(ax, ay);
+  }
+
+  /** Shadow Summon: two shadow soldiers rise beside you and fight for a while. In co-op the host raises them. */
+  summon() {
+    const p = this.player;
+    this.fx.ring(p.x, p.y, 60, '#7a3cff', 0.6, 3);
+    this.fx.burst(p.x, p.y, 30, { speed: 40, colors: ['#5a2ccf', '#b26bff', '#1a0a40'], glow: true, grav: -140, vz: 90, life: 1, size: 2, drag: 1 });
+    this.fx.text(p.x, p.y - Player.HEAD - 14, 'ARISE', '#b26bff', 2, 1);
+    this.sfx('arise', p.x);
+    if (this.authority) this.raiseShadows(p.x, p.y, null);
+    else this.coop!.push({ t: 'summon', x: Math.round(p.x), y: Math.round(p.y) });
+  }
+
+  /** Host: two summoned shadows near (x, y), following `owner` (a peer id, or null for this machine's player). */
+  raiseShadows(x: number, y: number, owner: string | null) {
+    const kinds = ['masked_orc_idle_anim', 'ogre_idle_anim'];
+    kinds.forEach((anim, i) => {
+      const a = (i / kinds.length) * Math.PI * 2 + Math.random();
+      const s = new Shadow(this.A.anim(anim), x + Math.cos(a) * 30, y + Math.sin(a) * 16, anim);
+      s.id = ++this.nextId; s.owner = owner; s.life = 16;
+      this.level.collide(s, s.r);
+      this.enemies.push(s);
+    });
+  }
+
+  /** The boss this player is fighting: the closest one awake and within a screen or so. Area bosses elsewhere
+   *  on the map don't steal the camera or the boss bar. */
+  get nearBoss(): Boss | undefined {
+    const p = this.player;
+    let best: Boss | undefined, bd = 460;
+    for (const e of this.enemies) {
+      if (!(e instanceof Boss) || e.dead || e.state === 'spawn') continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best;
+  }
+
+  /** The player a shadow soldier follows. */
+  ownerOf(owner: string | null): Player { return (owner && this.remotes.get(owner)) || this.player; }
+
+  private fireHook(ax: number, ay: number) {
+    const p = this.player, b = p.blade();
+    p.hook = { x: b.gx, y: b.gy, vx: ax * 950, vy: ay * 950, phase: 'fly', ax: 0, ay: 0, target: null, t: 0, dist: 0 };
+    p.face = Math.sign(ax) || p.face;
+    this.sfx('swish', p.x); this.sfx('draw', p.x, 0.6);
+  }
+
+  /** Hook flight, latching, the reel-in and the strike on arrival. Local to this machine's player. */
+  private updateHook(dt: number) {
+    const p = this.player, h = p.hook;
+    if (!h) return;
+    h.t += dt;
+    if (h.phase === 'fly') {
+      h.x += h.vx * dt; h.y += h.vy * dt; h.dist += Math.hypot(h.vx, h.vy) * dt;
+      const foe = this.enemies.find((e) => !e.ally && !e.dead && e.state !== 'spawn' && Math.abs(h.x - e.x) < e.r + 10 && Math.abs(h.y - (e.y - e.height() * 0.5)) < e.height() * 0.5);
+      if (foe) { h.phase = 'pull'; h.target = foe; h.t = 0; }
+      else if (this.level.anchorAt(h.x, h.y + Player.CHEST)) { h.phase = 'pull'; h.ax = h.x; h.ay = h.y + Player.CHEST; h.t = 0; }
+      else if (h.dist > 320) { h.phase = 'back'; }
+      if (h.phase === 'pull') {
+        p.setState('grapple');
+        this.sfx('metal', h.x, 0.5);
+        this.fx.burst(h.x, h.y, 6, { speed: 80, color: '#ffd88a', glow: true, life: 0.25, grav: 0 });
+      }
+    } else if (h.phase === 'pull') {
+      const tx = h.target ? h.target.x : h.ax, ty = h.target ? h.target.y : h.ay;
+      if (h.target) { h.x = tx; h.y = ty - 20; }
+      const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy) || 1;
+      p.vx = (dx / d) * 620; p.vy = (dy / d) * 620; p.iframes = Math.max(p.iframes, 0.1);
+      if (Math.random() < 0.6) this.fx.after(this.A.heroes[p.slot].run.shadow[1], p.x, p.y, p.face < 0, 16, 56, 0.18);
+      const stuck = h.t > 0.12 && Math.hypot(p.vx * dt, p.vy * dt) > 0 && this.level.collide({ x: p.x + p.vx * dt, y: p.y + p.vy * dt }, p.r) && d > 30;
+      // big foes are wide and shove back, so "arrived" means touching their body, not their feet
+      const reach = h.target ? h.target.r + 22 : 20;
+      if (d < reach || h.t > 0.9 || h.target?.dead || stuck) {
+        const target = h.target;
+        p.hook = null; p.setState('normal'); p.vx *= 0.25; p.vy *= 0.25; p.punch(3);
+        if (target && !target.dead && d < reach + 30) this.hookStrike(target as Enemy);
+        else { this.sfx('step', p.x); this.fx.burst(p.x, p.y, 8, { speed: 50, colors: ['#3a3155', '#2a2340'], size: 2, life: 0.4, z: 1, vz: 10, grav: 40 }); }
+      }
+    } else {
+      const b = p.blade(), dx = b.gx - h.x, dy = b.gy - h.y, d = Math.hypot(dx, dy);
+      if (d < 20) { p.hook = null; return; }
+      h.x += (dx / d) * 1200 * dt; h.y += (dy / d) * 1200 * dt;
+    }
+  }
+
+  /** Arriving at the end of the rope: a spinning cut. Titans take it on the nape. */
+  private hookStrike(e: Enemy) {
+    const p = this.player, titan = e.kind === 'titan' || e.kind === 'atitan';
+    const dmg = 30 * p.dmgMul * (titan ? 3 : 1), dx = Math.sign(e.x - p.x) || 1;
+    this.damageEnemy(e, dmg, dx, 0, { crit: true, knock: 120, how: titan ? 'nape' : 'riposte' });
+    p.play('riposte'); p.parryAngle = Math.atan2(e.y - 20 - p.y, e.x - p.x);
+    this.hitstop(0.08); this.shake(0.35); this.chroma(1.2);
+    this.fx.ring(e.x, e.y - 20, 50, '#ffd88a', 0.3, 3);
+    if (titan) this.fx.text(e.x, e.y - e.height() - 10, 'NAPE!', '#ffd84a', 2, 0.8);
+    this.sfx('riposte', e.x);
+  }
+
+  /** Damage from this machine's player. The host applies it; a co-op client shows it now and reports it. */
+  damageEnemy(e: Enemy, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+    e.hurt(this, dmg, dx, dy, opts);
+    if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg, dx, dy, kn: opts.knock ?? 60, how: opts.how, c: opts.crit ? 1 : 0 });
+  }
+
   /** XP an enemy is worth when it dies near you. */
   private xpFor(e: Enemy) {
-    const base = e.boss ? 400 : e.elite ? 140 : e.kind === 'brute' ? 22 : e.kind === 'caster' ? 9 : e.kind === 'ghoul' ? 7 : 0;
+    const base = e instanceof Boss ? (e.final ? 400 : 220) : e.kind === 'titan' ? 45 : e.elite ? 140 : e.kind === 'brute' ? 22 : e.kind === 'caster' ? 9 : e.kind === 'ghoul' ? 7 : 0;
     return Math.round(base * 1.6 * (1 + 0.2 * (e.level - 1)));
   }
 
@@ -402,7 +554,14 @@ export class Game {
     // every machine: XP if you were nearby, and your own loot roll
     const p = this.player;
     if (!e.ally && Math.hypot(p.x - e.x, p.y - e.y) < 700) this.gainXp(this.xpFor(e));
-    if (!e.ally && (e.elite || e.boss || e.kind === 'brute')) this.night.spill(rollLoot(e.boss ? 'boss' : e.elite ? 'miniboss' : 'elite'), e.x, e.y);
+    if (e instanceof Boss && !e.final) {
+      // an area boss: its unique reward, plus good loot
+      if (e.reward) this.night.spill([e.reward, ...rollLoot('miniboss')], e.x, e.y);
+      this.banner(`${e.name} FALLS`, '#ffd84a', 2);
+      this.slowmo(0.8, 0.3); this.flash('#ffffff', 0.3); this.shake(0.6);
+      return;
+    }
+    if (!e.ally && (e.elite || e.boss || e.kind === 'brute' || e.kind === 'titan')) this.night.spill(rollLoot(e.boss ? 'boss' : e.elite ? 'miniboss' : 'elite'), e.x, e.y);
     if (e.boss) {
       this.night.ended = 'won'; this.night.endT = 0;
       this.slowmo(2, 0.2); this.flash('#ffffff', 0.5); this.shake(1); this.chroma(2);
@@ -419,7 +578,7 @@ export class Game {
     // ARISE: enemies killed by a riposte come back as shadow soldiers
     const allies = this.enemies.filter((x) => x.ally && !x.dead).length;
     const pact = this.player.has('pact');
-    if ((how === 'riposte' || (pact && Math.random() < 0.15 * pact)) && allies < 4 && this.authority && !e.ally) {
+    if ((how === 'riposte' || how === 'nape' || (pact && Math.random() < 0.15 * pact)) && allies < 4 && this.authority && !e.ally) {
       const anim = (e as Ghoul).idleAnim ?? e.anim;
       this.later(0.45, () => {
         const s = new Shadow(anim, e.x, e.y, e.shadowAnim);
@@ -472,10 +631,12 @@ export class Game {
     // input
     for (const ev of this.input.events.splice(0)) {
       if (this.night.ended && this.night.endT > 1.5 && (ev.type === 'parry' || ev.type === 'roll')) { this.restartNight(); break; }
+      if (ev.type === 'item') { this.useItem(ev.slot, ev.dx, ev.dy, ev.dragged); continue; }
       if (ev.type === 'parry') p.tryParry(this);
       else if (ev.type === 'roll') p.tryRoll(this, ev.dx, ev.dy);
       else if (ev.type === 'key') {
         if (ev.key === 'KeyR' && this.night.ended && this.night.endT > 1.5) this.restartNight();
+        if (ev.key === 'KeyM') this.mapOpen = !this.mapOpen;
         const map: Record<string, string> = { Digit1: 'ghoul', Digit2: 'caster', Digit3: 'brute', Digit4: 'boss', Digit5: 'wave', Digit0: 'clear', KeyG: 'god', KeyH: 'hitbox' };
         if (map[ev.key]) this.sandbox(map[ev.key]);
       }
@@ -486,6 +647,7 @@ export class Game {
     if (this.input.device === 'touch' && this.input.firing) this.aimAssist();
 
     p.update(this, sdt);
+    this.updateHook(sdt);
     for (const rp of this.remotes.values()) rp.simRemote(this, sdt);
     this.coop?.tick(dt);
     if (p.state === 'dead') {
@@ -516,6 +678,9 @@ export class Game {
     this.night.update(sdt);
     this.mirroring = false; this.fx.emit = null;
     this.toastT += dt;
+    // Fortnite-style place names as you cross into them
+    const here = this.level.poiAt(p.x, p.y)?.name ?? null;
+    if (here !== this.lastPoi) { if (here && p.state !== 'dead') this.banner(here, this.level.pois.find((q) => q.name === here)!.color, 1.8); this.lastPoi = here; }
     this.separate();
     this.updateBullets(sdt);
     this.updateHazards(sdt);
@@ -534,7 +699,7 @@ export class Game {
     const ll = Math.hypot(lx, ly); if (ll > 60) { lx *= 60 / ll; ly *= 60 / ll; }
     if (this.input.device === 'touch') { lx = p.vx * 0.18; ly = p.vy * 0.18; }
     // boss fights: pull the camera toward the boss so both stay framed
-    const boss = this.enemies.find((e) => e.boss && e.state !== 'spawn');
+    const boss = this.nearBoss;
     if (boss) {
       const bx = boss.x - p.x, by = boss.y - 40 - p.y, bd = Math.hypot(bx, by);
       const w = Math.max(0, Math.min(0.45, (bd - 40) / 400));
@@ -677,7 +842,7 @@ export class Game {
   respawnPoint() {
     const mate = [...this.remotes.values()].find((r) => r.state !== 'dead' && !r.dissolved);
     if (mate) return { x: mate.x + 20, y: mate.y };
-    return this.level.spotIn(this.level.rooms.find((r) => r.kind === 'spawn')!);
+    return this.night.dropPoint();
   }
 
   private respawn() {
@@ -721,10 +886,7 @@ export class Game {
 
     // depth-sorted entities
     const items: { y: number; draw: () => void }[] = [];
-    for (const c of this.level.columns) {
-      if (c.x < cx - 40 || c.x > cx + W + 40 || c.y < cy - 20 || c.y > cy + H + 80) continue;
-      items.push({ y: c.y, draw: () => this.level.drawColumn(s, c, cx, cy) });
-    }
+    for (const c of this.level.propsIn(cx, cy, W, H)) items.push({ y: c.y, draw: () => this.level.drawColumn(s, c, cx, cy) });
     for (const e of this.enemies) items.push({ y: e.y, draw: () => e.draw(this, s, cx, cy) });
     const p = this.player;
     items.push({ y: p.y, draw: () => p.draw(this, s, gl, cx, cy, this.renderDt) });
@@ -740,20 +902,30 @@ export class Game {
 
     // lighting
     li.globalCompositeOperation = 'source-over';
-    li.fillStyle = p.state === 'dead' ? '#26242e' : '#33313f'; li.fillRect(0, 0, W + 2, H + 2);
+    // moonlight outdoors, torchlit dark inside the dungeon; eased so walking through a gate fades between them
+    const indoor = this.level.indoorAt(p.x, p.y) ? 1 : 0;
+    this.indoorK += (indoor - this.indoorK) * Math.min(1, this.renderDt * 3);
+    const mix = (a: number, b: number) => Math.round(a + (b - a) * this.indoorK);
+    li.fillStyle = p.state === 'dead' ? '#26242e' : `rgb(${mix(70, 51)},${mix(74, 49)},${mix(108, 63)})`;
+    li.fillRect(0, 0, W + 2, H + 2);
     li.globalCompositeOperation = 'lighter';
     const L = (x: number, y: number, r: number, color: string, a = 1) => {
       if (x + r < cx || x - r > cx + W + 2 || y + r < cy || y - r > cy + H + 2) return;
       li.globalAlpha = a; li.drawImage(lightSprite(color), Math.round(x - r - cx), Math.round(y - r - cy), r * 2, r * 2);
     };
-    for (const l of this.level.lights) L(l.x, l.y, l.radius * (1 + Math.sin(this.time * 9 + l.x) * l.flicker * 0.3), l.color, 0.9);
-    L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.75);
-    L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.18);
-    for (const e of this.enemies) if (e.state !== 'spawn') L(e.x, e.y - 8, e.boss ? 60 : 30, e.ally ? '#7a3cff' : '#ff3355', 0.22);
+    // world lights carry the dungeon; under the moon they're accents, not floodlights
+    const lw = 0.25 + 0.65 * this.indoorK;
+    for (const l of this.level.lights) L(l.x, l.y, l.radius * (1 + Math.sin(this.time * 9 + l.x) * l.flicker * 0.3), l.color, lw);
+    // the hunter's own glow: strong in the dungeon dark, a gentle halo under the moon
+    L(p.x, p.y - Player.CHEST, 140, '#7a6aa0', 0.18 + 0.57 * this.indoorK);
+    L(p.x, p.y - Player.CHEST, 56, '#d8d0f0', 0.06 + 0.12 * this.indoorK);
+    // moonlit ground is already lit, so additive glows need less to read and saturate much sooner
+    const lo = 0.6 + 0.4 * this.indoorK;
+    for (const e of this.enemies) if (e.state !== 'spawn') L(e.x, e.y - 8, e.boss ? 60 : 30, e.ally ? '#7a3cff' : '#ff3355', 0.22 * lo * lo);
     // bullet lights share a budget: dense patterns would otherwise stack into a white-out
     const share = Math.min(1, 22 / Math.max(1, this.bullets.length));
     for (const b of this.bullets) L(b.x, b.y, b.team === 'player' ? 22 : 18, b.team === 'player' ? '#9a5cff' : '#ff3355', 0.55 * share);
-    for (const l of this.fx.lights) L(l.x, l.y, l.r, l.color, l.a);
+    for (const l of this.fx.lights) L(l.x, l.y, l.r, l.color, l.a * lo);
     this.fx.lights.length = 0;
     li.globalAlpha = 1;
     this.drawStorm(li, gl, cx, cy, W, H);
@@ -772,6 +944,7 @@ export class Game {
     }
     this.drawThreats(ui, ux, uy);
     drawHud(this, ui);
+    hudHit(this);
     this.coop?.flush();
 
     R.present(this.post, this.time);

@@ -34,18 +34,33 @@ export const PASSIVES: Record<string, PassiveDef> = {
   execution: { name: 'EXECUTIONER', icon: 'flask_big_yellow', desc: '+CRIT DAMAGE' },
 };
 
+/** Active items live in the two ability slots (Q / E, or the thumb buttons) and cost mana. */
+export interface ActiveDef { name: string; icon: 'IconSummon' | 'IconHook'; cost: number; cooldown: number; aimed: boolean; desc: string; color: string }
+export const ACTIVES: Record<string, ActiveDef> = {
+  summon:  { name: 'SHADOW SUMMON', icon: 'IconSummon', cost: 45, cooldown: 7, aimed: false, desc: 'RAISE TWO SHADOW SOLDIERS', color: '#b26bff' },
+  grapple: { name: 'GRAPPLING HOOK', icon: 'IconHook', cost: 8, cooldown: 0.9, aimed: true, desc: 'ZIP TO WALLS, TREES, FOES', color: '#ffc83a' },
+};
+/** Relics: unique rewards from the named places' bosses. */
+export interface RelicDef { name: string; icon: 'IconMana'; desc: string; color: string }
+export const RELICS: Record<string, RelicDef> = {
+  boundless: { name: 'BOUNDLESS', icon: 'IconMana', desc: 'UNLIMITED MANA', color: '#7ad8ff' },
+};
+
 export type Item =
   | { kind: 'weapon'; key: string; rarity: number }
   | { kind: 'passive'; key: string; rarity: number }
+  | { kind: 'active'; key: string; rarity: number }
+  | { kind: 'relic'; key: string; rarity: number }
   | { kind: 'flask'; rarity: number };
 
 export function itemName(it: Item) {
-  if (it.kind === 'flask') return 'HEALING FLASK';
-  return it.kind === 'weapon' ? WEAPONS[it.key].name : PASSIVES[it.key].name;
-}
-export function itemIcon(it: Item) {
-  if (it.kind === 'flask') return 'flask_red';
-  return it.kind === 'weapon' ? WEAPONS[it.key].icon : PASSIVES[it.key].icon;
+  switch (it.kind) {
+    case 'flask': return 'HEALING FLASK';
+    case 'weapon': return WEAPONS[it.key].name;
+    case 'passive': return PASSIVES[it.key].name;
+    case 'active': return ACTIVES[it.key].name;
+    case 'relic': return RELICS[it.key].name;
+  }
 }
 
 const pick = <T>(xs: T[], r: () => number) => xs[Math.floor(r() * xs.length)];

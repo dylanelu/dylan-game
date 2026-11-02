@@ -210,6 +210,7 @@ export class Coop {
         break;
       }
       case 'cmd': if (this.isHost) g.sandbox(m.act); break;
+      case 'summon': if (this.isHost) g.raiseShadows(m.x, m.y, from); break;
       case 'chest': if (!g.night.chests.some((c) => c.id === m.id)) g.night.chests.push({ id: m.id, x: m.x, y: m.y, opened: false, t: 0 }); break;
       case 'gate': g.night.bossSpawned = true; g.banner('THE GATE OPENS', '#ff3355', 3); g.gatePull(); break;
       case 'reset': if (!this.isHost) g.restartNight({ x: m.x, y: m.y }); break;

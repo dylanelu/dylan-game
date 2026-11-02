@@ -11,9 +11,17 @@ export interface Assets {
   /** shadow dagger (knife sprite recolored), blade pointing up, grip at the bottom */
   dagger: { img: Sprite; flash: Sprite; w: number; h: number };
   tile(name: string, frame?: number): Sprite;   // 2x scaled
+  /** a rect from a Ninja Adventure sheet (CC0), night-graded, scaled */
+  nt(sheet: NinjaSheet, x: number, y: number, w: number, h: number, scale?: number, raw?: boolean): Sprite;
+  /** a row of equal frames from a Ninja Adventure sheet as an Anim */
+  nAnim(sheet: NinjaSheet, x: number, y: number, w: number, h: number, frames: number, stepX: number, stepY: number, scale?: number): Anim;
   anim(name: string, scale?: number): Anim;
 }
 
+export type NinjaSheet = 'TilesetFloor' | 'TilesetNature' | 'TilesetTowers' | 'TilesetWater' | 'NinjaDark' | 'RedSamuraiWalk' | 'RedSamuraiIdle'
+  | 'RedSamuraiAttack' | 'BlueSamuraiWalk' | 'BlueSamuraiIdle' | 'IconHook' | 'IconSummon' | 'IconMana';
+const NINJA: NinjaSheet[] = ['TilesetFloor', 'TilesetNature', 'TilesetTowers', 'TilesetWater', 'NinjaDark', 'RedSamuraiWalk', 'RedSamuraiIdle',
+  'RedSamuraiAttack', 'BlueSamuraiWalk', 'BlueSamuraiIdle', 'IconHook', 'IconSummon', 'IconMana'];
 const SHEET = 'assets/vendor/0x72/0x72_DungeonTilesetII_v1.3.png';
 const LIST = 'assets/vendor/0x72/tiles_list_v1.3';
 
@@ -141,7 +149,14 @@ function rotated(src: Sprite, a: number, cx: number, cy: number): Sprite {
 }
 
 export async function loadAssets(base = ''): Promise<Assets> {
-  const [heroImg, sheetImg, list] = await Promise.all([load(base + 'assets/hero.png'), load(base + SHEET), fetch(base + LIST).then((r) => r.text())]);
+  const [heroImg, sheetImg, list, ...ninjaImgs] = await Promise.all([
+    load(base + 'assets/hero.png'), load(base + SHEET), fetch(base + LIST).then((r) => r.text()),
+    ...NINJA.map((n) => load(`${base}assets/vendor/ninja/${n}.png`)),
+  ]);
+  const ninja = new Map<NinjaSheet, { raw: HTMLImageElement; graded: Sprite }>();
+  NINJA.forEach((n, i) => ninja.set(n, { raw: ninjaImgs[i], graded: grade(ninjaImgs[i]) }));
+  const ntCache = new Map<string, Sprite>();
+  const nAnimCache = new Map<string, Anim>();
   const sheet = grade(sheetImg);
   const defs = new Map<string, { x: number; y: number; w: number; h: number; n: number }>();
   for (const line of list.split('\n')) {
@@ -180,9 +195,31 @@ export async function loadAssets(base = ''): Promise<Assets> {
   };
   const knife = defs.get('weapon_knife')!;
   const dagger = shadowBlade(sheetImg, knife.x, knife.y, knife.w, knife.h, 2);
+  const nt = (sheet: NinjaSheet, x: number, y: number, w: number, h: number, scale = 2, raw = false): Sprite => {
+    const key = `${sheet}:${x}:${y}:${w}:${h}:${scale}:${raw}`;
+    let c = ntCache.get(key);
+    if (!c) {
+      const src = ninja.get(sheet)!;
+      const out = canvas(w * scale, h * scale);
+      out.ctx.drawImage(raw ? src.raw : src.graded, x, y, w, h, 0, 0, w * scale, h * scale);
+      c = out.c; ntCache.set(key, c);
+    }
+    return c;
+  };
   return {
     heroes: HERO_LOOKS.map(heroSet),
     dagger: { img: dagger, flash: tinted(dagger, '#ffffff'), w: dagger.width, h: dagger.height },
+    nt,
+    nAnim(sheet, x, y, w, h, frames, stepX, stepY, scale = 2) {
+      const key = `${sheet}:${x}:${y}:${w}:${h}:${frames}:${stepX}:${stepY}:${scale}`;
+      let a = nAnimCache.get(key);
+      if (!a) {
+        const normal = Array.from({ length: frames }, (_, i) => nt(sheet, x + i * stepX, y + i * stepY, w, h, scale));
+        a = { normal, flash: normal.map((f) => tinted(f, '#ffffff')), shadow: normal.map((f) => tinted(f, '#2a1060', 0.9)), w: w * scale, h: h * scale };
+        nAnimCache.set(key, a);
+      }
+      return a;
+    },
     tile(name, frame = 0) {
       const key = `${name}:${frame}`;
       let t = tileCache.get(key);

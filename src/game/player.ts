@@ -14,7 +14,7 @@ const AIM_HOLD = 0.45;               // keep the blade aimed this long after the
 const RIPOSTE_TIME = 0.32;
 const HIT_TIME = 0.28;
 
-export type PlayerState = 'normal' | 'roll' | 'parry' | 'recover' | 'dead';
+export type PlayerState = 'normal' | 'roll' | 'parry' | 'recover' | 'dead' | 'grapple';
 
 export class Player {
   /** body landmarks above the feet, in native px (sprite is 0x72's 16×28 elf at 2x) */
@@ -49,6 +49,13 @@ export class Player {
   level = 1; xp = 0;
   weapon: { key: string; rarity: number } = { key: 'dagger', rarity: 0 };
   passives: { key: string; rarity: number }[] = [];
+  /** the two ability slots (Q / E, or the thumb buttons) and their cooldowns */
+  actives: (string | null)[] = [null, null];
+  cooldowns: Record<string, number> = {};
+  relics: string[] = [];
+  get boundless() { return this.relics.includes('boundless'); }
+  /** grappling hook in flight / pulling / returning */
+  hook: { x: number; y: number; vx: number; vy: number; phase: 'fly' | 'pull' | 'back'; ax: number; ay: number; target: { x: number; y: number; r: number; dead?: boolean } | null; t: number; dist: number } | null = null;
   /** summed strength of a passive (rarity scales it); 0 when not owned */
   has(key: string) { return this.passives.filter((p) => p.key === key).reduce((a, p) => a + RARITY[p.rarity].mul, 0); }
   get dmgMul() { return (1 + 0.09 * (this.level - 1)) * RARITY[this.weapon.rarity].mul; }
@@ -122,7 +129,9 @@ export class Player {
     }
 
     const mv = g.input.move;
-    if (this.state === 'roll') {
+    if (this.state === 'grapple') {
+      // velocity is driven by the hook (Game.updateHook); leave it alone here
+    } else if (this.state === 'roll') {
       // fast start, eased stop: reads as a committed dive
       const k = Math.max(0, 1 - this.t / ROLL_TIME);
       const sp = ROLL_SPEED * (0.35 + 0.65 * k * k);
@@ -181,6 +190,8 @@ export class Player {
     // mana regenerates after a short pause
     this.manaDelay -= dt;
     if (this.manaDelay <= 0) this.mana = Math.min(this.maxMana, this.mana + 30 * (1 + 0.6 * this.has('font')) * dt);
+    if (this.boundless) this.mana = this.maxMana;
+    for (const k in this.cooldowns) this.cooldowns[k] = Math.max(0, this.cooldowns[k] - dt);
 
     if (g.input.firing && this.state !== 'roll' && this.action?.name !== 'riposte' && this.fireCd <= 0) this.fire(g);
     this.updateBlade(dt);
@@ -254,7 +265,7 @@ export class Player {
   fire(g: Game) {
     const W = WEAPONS[this.weapon.key];
     const emp = this.empowered > 0;
-    const cost = emp ? 0 : W.cost;
+    const cost = emp || this.boundless ? 0 : W.cost;
     if (this.mana < cost) {
       if (this.fireCd <= 0) { this.fireCd = 0.25; g.fx.text(this.x, this.y - Player.HEAD - 10, 'NO MANA', '#8a7ab8', 1, 0.5); }
       return;
@@ -303,6 +314,7 @@ export class Player {
       return { anim: H.fall, i: Math.min(2, Math.floor((this.t - 0.12) / 0.07)), ax: 32, ay: 64 };
     }
     if (this.state === 'roll') return { anim: H.roll, i: this.rollFrame(), ax: 32, ay: 64 };
+    if (this.state === 'grapple') return { anim: H.run, i: 1, ax: 16, ay: 56 };
     if (this.action?.name === 'hit') return { anim: H.hit, i: 0, ax: 16, ay: 56 };
     if (this.action?.name === 'riposte') return { anim: H.run, i: 2, ax: 16, ay: 56 };
     if (Math.hypot(this.vx, this.vy) > 24) return { anim: H.run, i: Math.floor(this.runT * 11) % 4, ax: 16, ay: 56 };
@@ -327,6 +339,7 @@ export class Player {
     if (this.state === 'parry') { sq += 0.1; lean -= this.face * 0.08; }
     if (this.action?.name === 'riposte') lean += this.face * 0.3 * Math.max(0, 1 - this.action.t / RIPOSTE_TIME);
     if (this.action?.name === 'hit') lean -= this.face * 0.25 * Math.max(0, 1 - this.action.t / HIT_TIME);
+    if (this.state === 'grapple') { lean += Math.max(-0.4, Math.min(0.4, this.vx / 900)); sq -= 0.12; }
     sq = Math.max(-0.3, Math.min(0.35, sq));
 
     const b = this.blade();
@@ -344,6 +357,17 @@ export class Player {
     ctx.restore();
 
     if (!bladeBehind) this.drawBlade(g, ctx, glow, cx, cy);
+
+    // grappling rope: from the hand to the hook, a slight sag while it flies
+    if (this.hook) {
+      const b = this.blade(), hx = Math.round(this.hook.x - cx), hy = Math.round(this.hook.y - cy);
+      const gx = Math.round(b.gx - cx), gy = Math.round(b.gy - cy);
+      const sag = this.hook.phase === 'fly' ? 6 : 0;
+      glow.strokeStyle = '#ffd88a'; glow.lineWidth = 1; glow.globalAlpha = 0.9;
+      glow.beginPath(); glow.moveTo(gx, gy); glow.quadraticCurveTo((gx + hx) / 2, (gy + hy) / 2 + sag, hx, hy); glow.stroke();
+      glow.globalAlpha = 1; glow.fillStyle = '#fff4c8';
+      glow.fillRect(hx - 1, hy - 1, 3, 3); glow.fillStyle = '#ffc83a'; glow.fillRect(hx - 2, hy, 1, 1); glow.fillRect(hx + 2, hy, 1, 1);
+    }
 
     // parry arc: bright during the perfect window, dim while guarding
     const ph = this.parryPhase;

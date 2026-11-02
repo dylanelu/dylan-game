@@ -13,6 +13,9 @@ export class Boss extends Enemy {
   kind: EnemyKind = 'boss';
   anim: Anim; idleAnim: Anim;
   name = 'THE CRIMSON WARDEN';
+  /** the night's final boss (killing it clears the gate); area bosses set this false and carry a reward */
+  final = true;
+  reward: import('./items').Item | null = null;
   posture = 0; maxPosture = 100; postureIdle = 0;
   phase = 1;
   attack: Attack = 'combo';
