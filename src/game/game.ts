@@ -991,7 +991,10 @@ export class Game {
         gl.fillRect(x - 1, y - h, 3, h); gl.globalAlpha = pulse * 0.3; gl.fillRect(x - 3, y - h * 0.6, 7, h * 0.6);
         gl.globalAlpha = 1;
       }
-      const icon = this.A.tile(it.kind === 'flask' ? 'flask_red' : it.kind === 'weapon' ? WEAPONS[it.key].icon : PASSIVES[it.key].icon);
+      const icon = it.kind === 'flask' ? this.A.tile('flask_red')
+        : it.kind === 'weapon' ? this.A.tile(WEAPONS[it.key].icon)
+        : it.kind === 'passive' ? this.A.tile(PASSIVES[it.key].icon)
+        : this.A.nt(it.kind === 'active' ? ACTIVES[it.key].icon : RELICS[it.key].icon, 0, 0, 24, 24, 1, true);
       const bob = Math.round(Math.sin(this.time * 3 + d.x) * 1.5 + d.z);
       s.fillStyle = 'rgba(4,2,10,0.5)'; s.fillRect(x - 6, y - 1, 12, 2);
       s.drawImage(icon, x - Math.round(icon.width / 2), y - icon.height - bob);

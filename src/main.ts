@@ -63,12 +63,13 @@ if (m) { joinRoom(m[1].toUpperCase()); game.banner(`JOINING ${m[1].toUpperCase()
 const MAX_STEP = 1 / 120;
 let last = performance.now();
 function frame(now: number) {
+  // schedule first: an exception in one frame shouldn't stop the game for good
+  requestAnimationFrame(frame);
   const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   const n = Math.max(1, Math.ceil(dt / MAX_STEP - 1e-6));
   for (let i = 0; i < n; i++) game.update(dt / n);
   game.renderDt = dt;
   game.render();
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
