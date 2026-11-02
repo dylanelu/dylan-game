@@ -42,6 +42,26 @@ bottom right; tap to use (aims at the nearest foe), or drag off the button to ai
 The grappling hook pulls you to whatever it bites; reaching a foe ends in a spinning cut, and on a titan it's a
 nape strike for triple damage that ignores armor. Relics like Boundless are passive.
 
+### Weapons and abilities
+
+Attack is the same input for every weapon (hold left click / hold a finger on the right side); each type reads it its own way.
+
+| Type | Weapons | How it plays |
+|---|---|---|
+| Thrown | Shadow Dagger, Twin Fangs, Scatterfang, Monarch's Edge, Stormneedle | the dagger stream; costs mana |
+| Katana | Kusabimaru, Yoru | three-slash combo with a lunge on the third; slashes cut enemy bullets out of the air |
+| Fists | Divergent Fist, Kokusen | jab, cross, jab, uppercut. Press again just as the last punch lands (the fist crackles red) or right after a perfect parry: **Black Flash**, 2.5x |
+| Greatbow | Hunter's Greatbow, Skypiercer | hold to draw (aim line, you walk), release to loose; a full draw glints and pierces; a tap is a quick weak shot |
+| Thunder Spear | Thunder Spear | 3 charges, one back every 7s; sticks into a foe or wall and blows 0.6s later, triple damage to titans |
+| Inverted Spear | Inverted Spear | long thrust that ignores armor and unmakes bullets on its line |
+| Chain whip | Thousand-Mile Chain, Kusarigama | wide sweep; the tip drags light foes in |
+
+Melee is free; perfect-parry charges empower it too. Abilities: **Domain Expansion** (fills from perfect parries and kills,
+shown on its button: everything inside nearly stops, their bullets come apart, your hits crit), **Ruler's Authority**
+(tap: shove and stagger a cone, bullets fly home; hold Q/E or drag the button: pull), **Shadow Exchange** (swap with your
+farthest shadow, else blink), **Stealth** (4s unseen; the first hit out of it is a 3x crit). Relics: **Mikiri Counter**
+(roll into a thrust or heavy swing to counter it) and **Beru** (a permanent shadow that respawns 20s after it falls).
+
 ## Run
 
 ```bash
@@ -97,6 +117,7 @@ traffic is direct WebRTC, so it works from GitHub Pages with no backend.
 - `src/game/night.ts`: the night's clock, storm, camps, mini-bosses, chests, the gate; `src/game/items.ts`: loot tables
 - `src/game/bosses.ts`: the area bosses (Shadow Knight, Toji, Armored Titan) and titans; `boss.ts`: the Crimson Warden
 - `src/game/player.ts` (incl. the grappling hook), `enemies.ts`, `fx.ts`, `hud.ts` (item buttons, full map)
+- `src/game/weapons.ts`: weapon types, abilities and relics; every melee / blast hit goes through `Game.playerStrike`
 - `src/net/net.ts`: Trystero room, join order, host election; `src/net/coop.ts`: what's synced and how
 
 ## Credits

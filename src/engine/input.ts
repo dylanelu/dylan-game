@@ -31,6 +31,8 @@ export class Input {
   joy: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
   /** an item button being dragged to aim (touch), in native screen px */
   itemDrag: { id: number; slot: number; ox: number; oy: number; x: number; y: number } | null = null;
+  /** Q / E currently held (an ability can tell a tap from a hold) */
+  itemHeld = [false, false];
   /** set by the HUD: which item button (0/1) is at a native screen point, or -1 */
   buttonAt: (x: number, y: number) => number = () => -1;
   /** set by the HUD: the full-map toggle area */
@@ -46,9 +48,11 @@ export class Input {
     addEventListener('keyup', (e) => {
       // macOS sends no keyups for keys released while Cmd is held, so a Cmd-shortcut could leave one stuck
       if (e.key === 'Meta') this.keys.clear(); else this.keys.delete(codeOf(e));
+      if (e.key === 'Meta' || codeOf(e) === 'KeyQ') this.itemHeld[0] = false;
+      if (e.key === 'Meta' || codeOf(e) === 'KeyE') this.itemHeld[1] = false;
       this.updateKeys();
     });
-    addEventListener('blur', () => { this.keys.clear(); this.mouseDown = false; this.updateKeys(); this.firing = false; });
+    addEventListener('blur', () => { this.keys.clear(); this.itemHeld[0] = this.itemHeld[1] = false; this.mouseDown = false; this.updateKeys(); this.firing = false; });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('mousedown', (e) => this.mouse(e, true));
     addEventListener('mouseup', (e) => this.mouse(e, false));
@@ -80,6 +84,7 @@ export class Input {
     } else if (code === 'KeyK') {
       this.events.push({ type: 'parry' });
     } else if (code === 'KeyQ' || code === 'KeyE') {
+      this.itemHeld[code === 'KeyQ' ? 0 : 1] = true;
       this.events.push({ type: 'item', slot: code === 'KeyQ' ? 0 : 1, dx: 0, dy: 0, dragged: false });
     } else {
       this.events.push({ type: 'key', key: code });

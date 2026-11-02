@@ -114,7 +114,7 @@ export class Boss extends Enemy {
     this.vx = -d.dx * 90; this.vy = -d.dy * 90;
   }
 
-  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
+  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
     if (this.state === 'enrage' || this.state === 'spawn' || this.z > 10) return;
     super.hurt(g, dmg, dx, dy, opts);
   }

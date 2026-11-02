@@ -248,9 +248,9 @@ export class ArmoredTitan extends AreaBoss {
   }
   height() { return 120; }
   /** armor: most damage glances off until its posture breaks */
-  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string } = {}) {
-    // a hook to the nape finds the gap in the plates
-    const armored = this.state !== 'stunned' && opts.how !== 'nape';
+  hurt(g: Game, dmg: number, dx: number, dy: number, opts: { crit?: boolean; knock?: number; how?: string; pierce?: boolean } = {}) {
+    // a hook to the nape finds the gap in the plates; piercing weapons go straight through them
+    const armored = this.state !== 'stunned' && opts.how !== 'nape' && !opts.pierce;
     if (armored && Math.random() < 0.3) g.fx.burst(this.x + dx * -10, this.y - 60, 4, { speed: 120, color: '#9ad0ff', glow: true, life: 0.2, grav: 0 });
     super.hurt(g, armored ? dmg * 0.4 : dmg, dx, dy, opts);
   }
