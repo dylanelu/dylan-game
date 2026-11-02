@@ -89,7 +89,7 @@ export class Game {
   renderDt = 1 / 60;
   paused = false;
   private indoorK = 0;
-  lastPoi: string | null = null;
+  lastPoi: string | null = null; poiT = 0; poiClock = 0; poiSaid = new Map<string, number>();
   mapOpen = false;
   /** co-op session (null when playing solo) and the other players' characters */
   coop: Coop | null = null;
@@ -857,9 +857,16 @@ export class Game {
     this.night.update(sdt);
     this.mirroring = false; this.fx.emit = null;
     this.toastT += dt;
-    // Fortnite-style place names as you cross into them
+    // Fortnite-style place names as you cross into them: only once you've stayed a moment, and not again for a
+    // while, so skirting a border doesn't flash the name over and over
     const here = this.level.poiAt(p.x, p.y)?.name ?? null;
-    if (here !== this.lastPoi) { if (here && p.state !== 'dead') this.banner(here, this.level.pois.find((q) => q.name === here)!.color, 1.8); this.lastPoi = here; }
+    this.poiClock += dt;
+    if (here !== this.lastPoi) { this.lastPoi = here; this.poiT = 0; }
+    else if (here && (this.poiT += dt) >= 0.7 && this.poiT - dt < 0.7 && p.state !== 'dead'
+      && this.poiClock - (this.poiSaid.get(here) ?? -1e9) > 60) {
+      this.poiSaid.set(here, this.poiClock);
+      this.banner(here, this.level.pois.find((q) => q.name === here)!.color, 1.8);
+    }
     this.separate();
     this.updateBullets(sdt);
     this.updateHazards(sdt);
@@ -1066,7 +1073,7 @@ export class Game {
     this.cam.x = this.player.x - this.r.w / 2; this.cam.y = this.player.y - this.r.h / 2;
     this.post.desat = 0; this.kills = 0; this.pvpKills = 0; this.deadT = 0;
     this.spectating = null; this.lastHitBy = null; this.feed = []; this.mapOpen = false;
-    this.bannerDur = 0; this.toastT = 9; this.lastPoi = null;
+    this.bannerDur = 0; this.toastT = 9; this.lastPoi = null; this.poiSaid.clear();
   }
 
   /** A match begins (solo, or the host's START): fresh night, fresh hunter, at our team's drop point.
