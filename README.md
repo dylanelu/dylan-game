@@ -28,21 +28,35 @@ Hosting makes a lobby with a room code and an invite link. Make it **PUBLIC** an
 
 ## A night
 
-About 10 minutes on one big fixed outdoor map (the same layout every run), Fortnite-style named places:
+About 10 minutes on one big fixed outdoor map (240×240 tiles, the same layout every run), Fortnite-style named places:
 
 | Place | What's there | Beat its boss for |
 |---|---|---|
 | **Arise Arena** | the old dungeon at the center; the Shadow Knight waits in its north hall | **Shadow Summon**: raise two shadow soldiers (mana) |
 | **Gojo Gate** → **Toji Towers** | a walled courtyard that opens into the fortress; Toji holds the inner keep | **Boundless**: unlimited mana |
-| **Titan Walls** | a ring wall in the south-west with titan camps; the Armored Titan guards it | **Grappling Hook**: zip to walls, trees and foes |
+| **Titan Walls** | a ring wall with titan camps; the Armored Titan guards it | **Grappling Hook**: zip to walls, trees and foes |
+| **Shibuya Station** | city blocks over a buried platform; the Patchwork Curse below | **Domain Expansion** |
+| **Ashina Castle** | a walled keep on a blossom hill; Genichiro, Way of Tomoe | **Mikiri Counter** |
+| **Red Gate** | a snowfield around a frozen arena; Baruka, the ice elf chief | **Stealth** |
+| **Forest of Giant Trees** | trunks made for grappling; the Female Titan (weak at the nape, hardens) | **Thunder Spear** |
+| **Jeju Island** | an ant nest across a causeway; the Ant King | **Beru** |
+| 8 lairs (Bamboo Grove, Cursed Shrine, Watcher's Hill, Sunken Ruins, Bone Pit, Old Mill, Moonwell, Hollow Stump) | each rolls tonight's boss from a pool of 8 | good loot; sometimes **Ruler's Authority** or **Shadow Exchange** |
 | Shadow Woods, Mirror Lake, Ruined Village, the fields | camps, chests, roads | gear and flasks |
+
+24 bosses in all: the 3 finals (the Crimson Warden, **Sukuna**, or **Antares** the dragon; one rises each night), the
+8 named-place bosses, and 13 lair bosses (Giant Frog, King Slime, Demon Cyclops, Storm Tengu, Tanuki, Golden Tanuki,
+Kraken, Bamboo Golem, Jogo, Hanami, Kargalgan, Vulcan, the Gravekeeper). 16 base enemies, each with one trick:
+ghouls, casters, brutes, titans, fly heads (swarm), gate slimes (split), burning skulls (explode), web spinners,
+ant larvae (burrow under you), vipers (lunge), sporemaws (spore rings), cursed lanterns (heal others), cyclopes
+(sighted bolt), frost bears (charge; walls stun them), kappa (shell blocks shots from the front) and phantoms
+(reappear behind you). Every place has its own mix.
 
 1. Drop in somewhere on the rim.
 2. Clear camps and the named places to level up and find gear. Cleared camps leave a chest. Loot is sparse and
    stands in a beam of its rarity color. Area bosses guard their ground and walk home if you run.
    In co-op, a boss's unique reward goes to every player, wherever they are.
 3. The shadow storm closes in stages toward Arise Arena; standing in it hurts more as the night goes on.
-4. At 9:00 the gate opens: anyone outside is pulled in and the Crimson Warden rises. Kill it to clear the night.
+4. At 9:00 the gate opens: anyone outside is pulled in and tonight's final boss rises. Kill it to clear the night.
 
 Enemy levels are hidden. The marker over an enemy says how bad it is for you: white is a fair fight, red is well
 above you, a purple skull means you will die. Solo gets one revival per night; in co-op you come back beside a teammate. Refreshing the page resumes the night
@@ -135,6 +149,8 @@ you straight into that lobby.
 - `src/game/world.ts`: the fixed outdoor map (terrain, named places, roads, props, autotiled walls, chunked drawing, minimap)
 - `src/game/night.ts`: the night's clock, storm, camps, mini-bosses, chests, the gate; `src/game/items.ts`: loot tables
 - `src/game/bosses.ts`: the area bosses (Shadow Knight, Toji, Armored Titan) and titans; `boss.ts`: the Crimson Warden
+- `src/game/roster.ts`: every newer monster and boss as data (sprites, stats, move pools, lair pools); `mobs.ts`: the twelve
+  base-enemy archetypes; `bossmoves.ts`: the shared 16-move boss library and Antares' serpent body
 - `src/game/player.ts` (incl. the grappling hook), `enemies.ts`, `fx.ts`, `hud.ts` (item buttons, full map)
 - `src/game/weapons.ts`: weapon types, abilities and relics; every melee / blast hit goes through `Game.playerStrike`
 - `src/ui/menu.ts`: main menu, join list, lobby, pause and end screens (DOM, drawn in the game's pixel font)
@@ -144,6 +160,6 @@ you straight into that lobby.
 ## Credits
 
 - Dungeon tiles, monsters and the hero base: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
-- Overworld tiles, trees, towers, samurai and item icons: [Ninja Adventure](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy and AAA, CC0
+- Overworld tiles, trees, towers, monsters, bosses, weapons and item icons: [Ninja Adventure](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy and AAA, CC0
 - Audio: Kenney, OpenGameArt and Ninja Adventure (jingles) CC0 packs, see [public/assets/audio/CREDITS.md](public/assets/audio/CREDITS.md). Rebuild with `tools/audio/fetch.sh` then `tools/audio/build.py`
 - Hero: 0x72's elf, recolored and hand-edited into Dylan with six co-op color variants (`dylanize` in `src/game/assets.ts`)

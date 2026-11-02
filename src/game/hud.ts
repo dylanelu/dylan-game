@@ -305,9 +305,16 @@ function drawMap(g: Game, ctx: CanvasRenderingContext2D, mx: number, my: number,
     ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(mx + p.x * sc) - 1, Math.round(my + p.y * sc) - 1, 3, 3);
   }
   if (labels) {
+    // kept inside the frame, and nudged up or down past labels already placed so none overlap
+    const placed: { x: number; y: number; w: number }[] = [];
+    const free = (x: number, y: number, w: number) => !placed.some((r) => x < r.x + r.w + 3 && r.x < x + w + 3 && Math.abs(r.y - y) < 8);
     for (const q of g.level.pois) {
-      const lx = mx + ((q.x0 + q.x1) / 2) * 32 * sc, ly = my + ((q.y0 + q.y1) / 2) * 32 * sc;
-      drawText(ctx, q.name, Math.round(lx - textWidth(q.name) / 2), Math.round(ly - 2), q.color);
+      const w = textWidth(q.name), cx = mx + ((q.x0 + q.x1) / 2) * 32 * sc, cy = my + ((q.y0 + q.y1) / 2) * 32 * sc - 2;
+      const x = Math.round(Math.max(mx + 2, Math.min(mx + M - w - 2, cx - w / 2)));
+      const y = [0, 8, -8, 16, -16].map((o) => Math.round(cy + o)).find((y) => free(x, y, w));
+      if (y === undefined) continue;
+      placed.push({ x, y, w });
+      drawText(ctx, q.name, x, y, q.color);
     }
   }
   ctx.restore();
