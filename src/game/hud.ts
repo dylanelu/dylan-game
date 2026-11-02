@@ -1,4 +1,5 @@
 import { Boss } from './boss';
+import { HERO_LOOKS } from './assets';
 import { drawText, textWidth } from './font';
 import type { Game } from './game';
 
@@ -25,6 +26,19 @@ export function drawHud(g: Game, ctx: CanvasRenderingContext2D) {
   for (let i = 0; i < p.empowered; i++) { ctx.fillStyle = '#d8a8ff'; ctx.fillRect(8 + i * 5, 22, 3, 3); }
   if (g.god) drawText(ctx, 'GOD', 102, 8, '#ffd84a');
   if (g.combo > 1) drawText(ctx, `${g.combo} PARRY CHAIN`, 8, 28, '#e8dcff');
+
+  // co-op: room line + every player's color and health
+  if (g.coop) {
+    const c = g.coop, line = `ROOM ${c.roomId}  ${c.count}/6  ${c.status}`;
+    drawText(ctx, line, Math.round((W - textWidth(line)) / 2), 6, '#8a7ab8');
+    const all = [g.player, ...g.remotes.values()].sort((a, b) => a.slot - b.slot);
+    all.forEach((pl, i) => {
+      const y = 40 + i * 9, look = HERO_LOOKS[pl.slot];
+      ctx.fillStyle = look.trim; ctx.fillRect(8, y, 5, 5);
+      bar(ctx, 16, y + 1, 40, 3, pl.hp / pl.maxHp, pl.state === 'dead' ? '#3a3155' : look.trim);
+      drawText(ctx, pl === g.player ? `${look.name} (YOU)` : look.name, 60, y, look.trim);
+    });
+  }
 
   // boss bar: health on top, posture growing from the center underneath (Sekiro style)
   const boss = g.enemies.find((e) => e instanceof Boss) as Boss | undefined;

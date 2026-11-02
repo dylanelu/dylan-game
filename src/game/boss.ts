@@ -107,7 +107,7 @@ export class Boss extends Enemy {
   deflected(g: Game, posture: number) {
     // deflecting a boss attack doesn't stagger it, it fills posture (Sekiro rules)
     this.addPosture(g, posture);
-    const d = this.dirTo(g.player.x, g.player.y);
+    const t = g.targetFor(this), d = this.dirTo(t.x, t.y);
     this.vx = -d.dx * 90; this.vy = -d.dy * 90;
   }
 
@@ -128,7 +128,7 @@ export class Boss extends Enemy {
   }
 
   think(g: Game, dt: number) {
-    const p = g.player, d = this.dirTo(p.x, p.y);
+    const p = g.targetFor(this), d = this.dirTo(p.x, p.y);
     const S = this.speedMul;
     this.postureIdle += dt;
     if (this.postureIdle > 2.5) this.posture = Math.max(0, this.posture - 7 * dt);
@@ -170,7 +170,7 @@ export class Boss extends Enemy {
         if (this.stateT < dt * 1.5) {
           g.fx.glint(this.x + this.face * 18, this.y - 86, isRed ? RED : WHITE, 11);
           g.sfx(isRed ? 'danger' : 'glint', this.x);
-          if (isRed) g.fx.telegraphs.push({ x: this.x, y: this.y, r: 74, t: 0, dur: wind, color: '#ff2244' });
+          if (isRed) g.fx.telegraph({ x: this.x, y: this.y, r: 74, t: 0, dur: wind, color: '#ff2244' });
         }
         if (this.stateT < wind * 0.8) { this.steer(d.dx * 30, d.dy * 30, dt); if (Math.abs(d.dx) > 0.15) this.face = Math.sign(d.dx); this.fromX = d.dx; this.fromY = d.dy; }
         else if (this.stateT < wind) this.steer(0, 0, dt);
@@ -182,7 +182,7 @@ export class Boss extends Enemy {
               g.sfx('slam', this.x); g.shake(0.4);
               g.fx.ring(this.x, this.y - 10, 80, '#ff3355', 0.3, 4);
               if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 76 + p.r) {
-                if (g.hitPlayer(this, 26, { heavy: true, kind: 'aoe' }) === 'parried') g.deflect(this, true);
+                g.attack(p, this, 26, { heavy: true, kind: 'aoe' }, () => g.deflect(this, true));
               }
             } else {
               this.vx = this.fromX * 300 * S; this.vy = this.fromY * 300 * S;
@@ -193,8 +193,7 @@ export class Boss extends Enemy {
           if (!isRed && !this.swingResolved && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 30) {
             this.swingResolved = true;
             g.fx.ring(this.x + this.fromX * 26, this.y - 30, 30, '#e8dcff', 0.15, 2);
-            const res = g.hitPlayer(this, 20, { kind: 'melee' });
-            if (res === 'parried') g.deflect(this);
+            g.attack(p, this, 20, { kind: 'melee' }, () => g.deflect(this));
           }
         } else if (this.stateT > wind + 0.28 / S) {
           this.step++;
@@ -251,7 +250,7 @@ export class Boss extends Enemy {
           this.steer(0, 0, dt);
           this.toX = p.x + p.vx * 0.25; this.toY = p.y + p.vy * 0.25;
           this.fromX = this.x; this.fromY = this.y;
-          if (this.stateT + dt >= crouch) g.fx.telegraphs.push({ x: this.toX, y: this.toY, r: 60, t: 0, dur: air, color: '#ff2244' });
+          if (this.stateT + dt >= crouch) g.fx.telegraph({ x: this.toX, y: this.toY, r: 60, t: 0, dur: air, color: '#ff2244' });
         } else if (this.stateT < crouch + air) {
           const k = (this.stateT - crouch) / air, e = k * k * (3 - 2 * k);
           this.x = this.fromX + (this.toX - this.fromX) * e;
@@ -267,8 +266,7 @@ export class Boss extends Enemy {
           g.fx.splat(this.x, this.y, '#0c0818', 30, 30);
           let deflected = false;
           if (Math.hypot(p.x - this.x, (p.y - this.y) / 0.62) < 58 + p.r) {
-            deflected = g.hitPlayer(this, 28, { heavy: true, kind: 'aoe' }) === 'parried';
-            if (deflected) g.deflect(this, true);
+            deflected = g.attack(p, this, 28, { heavy: true, kind: 'aoe' }, () => g.deflect(this, true)) === 'parried';
           }
           // deflecting the landing smothers its shockwave and bullet ring
           if (!deflected) {
@@ -290,7 +288,7 @@ export class Boss extends Enemy {
         if (this.stateT < wind) {
           this.steer(-d.dx * 30, -d.dy * 30, dt);
           if (this.stateT < wind * 0.6) { this.chargeDx = d.dx; this.chargeDy = d.dy; if (Math.abs(d.dx) > 0.1) this.face = Math.sign(d.dx); }
-          if (Math.abs(this.stateT - wind * 0.6) < dt) g.fx.telegraphs.push({ x: this.x, y: this.y, r: 0, t: 0, dur: wind * 0.4 + 0.1, color: '#ff2244', angle: Math.atan2(this.chargeDy, this.chargeDx), len: 300, width: 34 });
+          if (Math.abs(this.stateT - wind * 0.6) < dt) g.fx.telegraph({ x: this.x, y: this.y, r: 0, t: 0, dur: wind * 0.4 + 0.1, color: '#ff2244', angle: Math.atan2(this.chargeDy, this.chargeDx), len: 300, width: 34 });
         } else if (this.stateT < wind + 0.55) {
           this.vx = this.chargeDx * 430; this.vy = this.chargeDy * 430;
           this.emitT -= dt;
@@ -303,13 +301,13 @@ export class Boss extends Enemy {
           g.fx.after(this.anim.shadow[0], this.x, this.y, this.face < 0, this.anim.w >> 1, this.anim.h, 0.2);
           if (!this.hitThisAttack && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 10) {
             this.hitThisAttack = true;
-            if (g.hitPlayer(this, 24, { heavy: true, kind: 'melee' }) === 'parried') {
-              // deflecting a charge stops it dead
+            // deflecting a charge stops it dead
+            const stop = () => {
               g.deflect(this, true);
               this.vx = -this.chargeDx * 120; this.vy = -this.chargeDy * 120;
               this.setState('recover'); this.idleFor = 1.1;
-              return;
-            }
+            };
+            if (g.attack(p, this, 24, { heavy: true, kind: 'melee' }, stop) === 'parried') return;
           }
         } else if (this.stateT > wind + 0.85) {
           this.charges++;

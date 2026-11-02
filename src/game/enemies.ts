@@ -1,5 +1,5 @@
 import type { Anim } from './assets';
-import type { Game, HitResult } from './game';
+import type { Game } from './game';
 
 export type EnemyKind = 'ghoul' | 'caster' | 'brute' | 'boss' | 'shadow';
 
@@ -16,6 +16,12 @@ export abstract class Enemy {
   ally = false;
   boss = false;
   hitThisAttack = false;
+  /** network id (host-assigned) and replica state for co-op clients */
+  id = 0;
+  remote = false;
+  netX = 0; netY = 0;
+  /** idle anim name, used to rebuild this enemy's shadow soldier on other machines */
+  shadowAnim = '';
   abstract kind: EnemyKind;
   abstract anim: Anim;
   idleAnim?: Anim;
@@ -52,7 +58,22 @@ export abstract class Enemy {
     this.animT += dt * Math.max(0.35, speed / this.baseSpeed);
   }
 
+  /** Co-op client: no AI, just glide toward the host's snapshot and keep animating. */
+  private replicaUpdate(g: Game, dt: number) {
+    this.t += dt; this.stateT += dt; this.flash -= dt;
+    this.animateBody(dt);
+    this.x += this.vx * dt; this.y += this.vy * dt;          // dead-reckon between snapshots
+    const k = Math.min(1, dt * 12);
+    this.x += (this.netX - this.x) * k; this.y += (this.netY - this.y) * k;
+    if (Math.hypot(this.vx, this.vy) > 15 && this.state !== 'spawn') {
+      const fi = Math.floor(this.animT * this.animFps * 1.4) % 4;
+      if (fi !== this.lastFrame && (fi === 0 || fi === 2)) this.onStep(g);
+      this.lastFrame = fi;
+    }
+  }
+
   update(g: Game, dt: number) {
+    if (this.remote) { this.replicaUpdate(g, dt); return; }
     this.t += dt; this.stateT += dt; this.flash -= dt;
     this.animateBody(dt);
     if (this.state === 'spawn') {
@@ -108,7 +129,7 @@ export abstract class Enemy {
   /** Player perfect-parried one of our attacks. */
   parried(g: Game) {
     this.setState('stunned');
-    const d = this.dirTo(g.player.x, g.player.y);
+    const t = g.targetFor(this), d = this.dirTo(t.x, t.y);
     this.vx = -d.dx * 140 / this.heavy; this.vy = -d.dy * 140 / this.heavy;
   }
 
@@ -201,11 +222,11 @@ export class Ghoul extends Enemy {
   speed = 50 + Math.random() * 14;
   constructor(g: Game, x: number, y: number) {
     super(x, y);
-    this.anim = g.A.anim('masked_orc_run_anim'); this.idleAnim = g.A.anim('masked_orc_idle_anim');
+    this.anim = g.A.anim('masked_orc_run_anim'); this.idleAnim = g.A.anim('masked_orc_idle_anim'); this.shadowAnim = 'masked_orc_idle_anim';
     this.hp = this.maxHp = 30; this.r = 8; this.jitter = 1;
   }
   think(g: Game, dt: number) {
-    const p = g.player, d = this.dirTo(p.x, p.y);
+    const p = g.targetFor(this), d = this.dirTo(p.x, p.y);
     this.cd -= dt;
     if (Math.abs(d.dx) > 0.1) this.face = Math.sign(d.dx);
     switch (this.state) {
@@ -230,8 +251,7 @@ export class Ghoul extends Enemy {
       case 'lunge':
         if (!this.hitThisAttack && Math.hypot(p.x - this.x, p.y - this.y) < this.r + p.r + 7) {
           this.hitThisAttack = true;
-          const res: HitResult = g.hitPlayer(this, 12, { kind: 'melee' });
-          if (res === 'parried') { g.riposte(this, 60); return; }
+          if (g.attack(p, this, 12, { kind: 'melee', counter: true }, () => g.riposte(this, 60)) === 'parried') return;
         }
         if (this.stateT >= 0.2) { this.setState('recover'); this.cd = 0.9 + Math.random() * 0.6; }
         break;
@@ -252,11 +272,11 @@ export class Caster extends Enemy {
   heavyShot = false;
   constructor(g: Game, x: number, y: number) {
     super(x, y);
-    this.anim = g.A.anim('necromancer_idle_anim');
+    this.anim = g.A.anim('necromancer_idle_anim'); this.shadowAnim = 'necromancer_idle_anim';
     this.hp = this.maxHp = 26; this.r = 8; this.jitter = 0;
   }
   think(g: Game, dt: number) {
-    const p = g.player, d = this.dirTo(p.x, p.y);
+    const p = g.targetFor(this), d = this.dirTo(p.x, p.y);
     if (Math.abs(d.dx) > 0.1) this.face = Math.sign(d.dx);
     this.cd -= dt;
     switch (this.state) {
@@ -304,7 +324,7 @@ export class Brute extends Enemy {
   ax = 0; ay = 0;
   constructor(g: Game, x: number, y: number) {
     super(x, y);
-    this.anim = g.A.anim('ogre_run_anim'); this.idleAnim = g.A.anim('ogre_idle_anim');
+    this.anim = g.A.anim('ogre_run_anim'); this.idleAnim = g.A.anim('ogre_idle_anim'); this.shadowAnim = 'ogre_idle_anim';
     this.hp = this.maxHp = 170; this.r = 15; this.heavy = 3.5; this.jitter = 1; this.stunTime = 1.3; this.spawnTime = 1;
     this.baseSpeed = 38;
   }
@@ -314,7 +334,7 @@ export class Brute extends Enemy {
     g.fx.burst(this.x, this.y, 3, { speed: 30, color: '#3a3352', size: 1, life: 0.35, z: 0, vz: 14, grav: 60 });
   }
   think(g: Game, dt: number) {
-    const p = g.player, d = this.dirTo(p.x, p.y);
+    const p = g.targetFor(this), d = this.dirTo(p.x, p.y);
     this.cd -= dt;
     if (this.state !== 'windup' && Math.abs(d.dx) > 0.1) this.face = Math.sign(d.dx);
     switch (this.state) {
@@ -327,7 +347,7 @@ export class Brute extends Enemy {
           else {
             g.fx.glint(this.x, this.y - 58, RED, 10); g.sfx('danger', this.x); g.sfx('bruteRoar', this.x);
             this.ax = this.x + d.dx * 18; this.ay = this.y + d.dy * 10;
-            g.fx.telegraphs.push({ x: this.ax, y: this.ay, r: 58, t: 0, dur: 0.85, color: '#ff2244' });
+            g.fx.telegraph({ x: this.ax, y: this.ay, r: 58, t: 0, dur: 0.85, color: '#ff2244' });
           }
         }
         break;
@@ -340,8 +360,7 @@ export class Brute extends Enemy {
             g.sfx('swing', this.x);
             this.punch(3);
             if (d.d < 66 && p.state !== 'dead') {
-              const res = g.hitPlayer(this, 22, { kind: 'melee' });
-              if (res === 'parried') { g.riposte(this, 45); return; }
+              if (g.attack(p, this, 22, { kind: 'melee', counter: true }, () => g.riposte(this, 45)) === 'parried') return;
             }
             g.fx.ring(this.x + d.dx * 20, this.y - 20 + d.dy * 10, 34, '#d8c8ff', 0.18, 2);
             g.shake(0.15);
@@ -352,8 +371,7 @@ export class Brute extends Enemy {
             g.fx.burst(this.ax, this.ay, 22, { speed: 150, colors: ['#3a3155', '#5a4a7a'], size: 2, life: 0.6 });
             g.fx.light(this.ax, this.ay, 120, '#ff4422', 1);
             if (Math.hypot((p.x - this.ax), (p.y - this.ay) / 0.62) < 58 + p.r) {
-              const res = g.hitPlayer({ x: this.ax, y: this.ay }, 26, { heavy: true, kind: 'aoe' });
-              if (res === 'parried') { g.riposte(this, 55); return; }
+              if (g.attack(p, { x: this.ax, y: this.ay }, 26, { heavy: true, kind: 'aoe', counter: true }, () => g.riposte(this, 55)) === 'parried') return;
             }
           }
           this.setState('recover');
@@ -375,9 +393,9 @@ export class Shadow extends Enemy {
   life = 12;
   cd = 0;
   target: Enemy | null = null;
-  constructor(anim: Anim, x: number, y: number) {
+  constructor(anim: Anim, x: number, y: number, animName = '') {
     super(x, y);
-    this.anim = anim; this.ally = true; this.r = 8; this.spawnTime = 0.6;
+    this.anim = anim; this.ally = true; this.shadowAnim = animName; this.r = 8; this.spawnTime = 0.6;
   }
   think(g: Game, dt: number) {
     this.life -= dt; this.cd -= dt;

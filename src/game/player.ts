@@ -46,6 +46,11 @@ export class Player {
   dissolved = false;
   /** current sprite + its feet anchor, for afterimages and the death dissolve */
   sprite: { img: HTMLCanvasElement; ax: number; ay: number } | null = null;
+  /** player color / look index (0 = Dylan) */
+  slot = 0;
+  /** co-op: set on other players' characters (null for the local player) */
+  peerId: string | null = null;
+  netX = 0; netY = 0;
 
   constructor(public x: number, public y: number) {}
 
@@ -115,7 +120,7 @@ export class Player {
       this.afterT -= dt;
       if (this.afterT <= 0 && this.sprite) {
         this.afterT = 0.026;
-        const roll = g.A.hero.roll, fi = this.rollFrame();
+        const roll = g.A.heroes[this.slot].roll, fi = this.rollFrame();
         g.fx.after(roll.shadow[fi], this.x, this.y, this.face < 0, 32, 64, 0.24);
       }
       if (this.t >= ROLL_TIME) {
@@ -177,8 +182,29 @@ export class Player {
   private pivot() { return { x: this.x + this.face * 3, y: this.y - Player.CHEST + 2 }; }
   private aimAngle() { const p = this.pivot(); return Math.atan2(this.aimY - p.y, this.aimX - p.x); }
 
+  /** Another player's character: no input or physics, just timers, springs and smoothing toward the network position. */
+  simRemote(g: Game, dt: number) {
+    this.t += dt; this.flash -= dt; this.parryFlash -= dt; this.aimHold -= dt; this.muzzle -= dt;
+    this.iframes -= dt; this.invuln -= dt;
+    this.recoil *= Math.exp(-dt * 26);
+    if (this.action) this.action.t += dt;
+    this.sqV += (-190 * this.sq - 15 * this.sqV) * dt;
+    this.sq += this.sqV * dt;
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    const k = Math.min(1, dt * 14);
+    this.x += (this.netX - this.x) * k; this.y += (this.netY - this.y) * k;
+    const speed = Math.hypot(this.vx, this.vy);
+    if (speed > 24 && this.state !== 'roll') this.runT += dt * (speed / SPEED); else this.idleT += dt;
+    this.lean += ((this.state === 'roll' ? 0 : Math.max(-0.22, Math.min(0.22, this.vx / 600))) - this.lean) * Math.min(1, dt * 12);
+    this.updateBlade(dt);
+    if (this.state === 'roll') {
+      this.afterT -= dt;
+      if (this.afterT <= 0) { this.afterT = 0.026; g.fx.after(g.A.heroes[this.slot].roll.shadow[this.rollFrame()], this.x, this.y, this.face < 0, 32, 64, 0.24); }
+    }
+  }
+
   /** Where the dagger wants to point this frame; eased so it swings instead of teleporting. */
-  private updateBlade(dt: number) {
+  updateBlade(dt: number) {
     let target: number, rate = 22;
     const fwd = this.face > 0 ? 0 : Math.PI;
     if (this.state === 'parry' || this.parryFlash > 0) {
@@ -238,6 +264,7 @@ export class Player {
       r: emp ? 5 : 3, dmg: emp ? 22 : 9, team: 'player', heavy: false, life: 0.85, age: 0,
       color: emp ? '#d8a8ff' : '#a45cff', kind: emp ? 'big' : 'dagger', pierce: emp ? 3 : 0, hits: new Set(), source: null,
     });
+    g.onShot(g.bullets[g.bullets.length - 1]);
     if (emp) { this.empowered--; g.sfx('shootBig', this.x); g.shake(0.12); } else g.sfx('shoot', this.x);
     this.vx -= dx * 18; this.vy -= dy * 18;           // body recoil
     this.recoil = emp ? 6 : 4;                          // blade snaps back
@@ -250,7 +277,7 @@ export class Player {
 
   /** Pick the frame for this moment. */
   private pickSprite(g: Game): { anim: Anim; i: number; ax: number; ay: number } {
-    const H = g.A.hero;
+    const H = g.A.heroes[this.slot];
     if (this.state === 'dead') {
       if (this.t < 0.12) return { anim: H.hit, i: 0, ax: 16, ay: 56 };
       return { anim: H.fall, i: Math.min(2, Math.floor((this.t - 0.12) / 0.07)), ax: 32, ay: 64 };

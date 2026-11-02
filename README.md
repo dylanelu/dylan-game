@@ -28,6 +28,18 @@ chips hard), or roll through it. Parrying the boss fills its posture bar; a full
 
 Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` god mode, `H` hitboxes.
 
+## Co-op (up to 6, no server)
+
+Press **Co-op** to create a room; the invite link is copied (`…/#room=CODE`). Friends open it and drop in.
+Peers find each other through public Nostr relays via [Trystero](https://github.com/dmotz/trystero), then all
+traffic is direct WebRTC, so it works from GitHub Pages with no backend.
+
+- The earliest joiner hosts: enemies, the boss and enemy bullets run there and stream out at 15 Hz.
+- Everyone simulates their own character, so movement and parry timing never wait on the network. Attacks on a
+  remote player are resolved on that player's machine, with a little lag compensation on the parry window.
+- If the host leaves, the next player in line takes over the enemies.
+- Test locally with two players in one page: `npm run dev`, then open `/dev/coop.html`.
+
 ## Code map
 
 - `dev/rig.html`: hero frame viewer (`npm run dev`, then open `/dev/rig.html`)
@@ -39,6 +51,7 @@ Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` 
 - `src/engine/audio.ts`: sample-based mixer (layered events, pitch variation, panning, reverb, muffle, music crossfades)
 - `src/game/game.ts`: loop, combat resolution (`hitPlayer`), juice (hitstop, shake, slow-mo), rendering
 - `src/game/player.ts`, `enemies.ts`, `boss.ts`, `level.ts`, `fx.ts`, `hud.ts`
+- `src/net/net.ts`: Trystero room, join order, host election; `src/net/coop.ts`: what's synced and how
 
 ## Credits
 

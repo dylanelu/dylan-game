@@ -4,9 +4,9 @@ import { loadAssets } from '../src/game/assets';
 const A = await loadAssets('../');
 const S = 4;
 const root = document.getElementById('live')!;
-for (const [name, anim] of Object.entries(A.hero)) {
-  for (const variant of ['normal', 'flash', 'shadow'] as const) {
-    const frames = anim[variant];
+for (const [slot, set] of A.heroes.entries()) for (const [name, anim] of Object.entries(set)) {
+  for (const variant of (slot === 0 ? ['normal', 'flash', 'shadow'] : ['normal']) as ('normal' | 'flash' | 'shadow')[]) {
+    const frames: HTMLCanvasElement[] = (anim as { normal: HTMLCanvasElement[]; flash: HTMLCanvasElement[]; shadow: HTMLCanvasElement[] })[variant];
     const c = document.createElement('canvas');
     c.width = frames.reduce((w, f) => w + f.width + 4, 0); c.height = Math.max(...frames.map((f) => f.height));
     c.style.width = `${c.width * S}px`; c.style.height = `${c.height * S}px`;
@@ -14,7 +14,7 @@ for (const [name, anim] of Object.entries(A.hero)) {
     ctx.fillStyle = '#221d30'; ctx.fillRect(0, 0, c.width, c.height);
     let x = 0;
     for (const f of frames) { ctx.drawImage(f, x, c.height - f.height); x += f.width + 4; }
-    const d = document.createElement('div'); d.className = 'cell'; d.append(c, `${name} ${variant}`);
+    const d = document.createElement('div'); d.className = 'cell'; d.append(c, `P${slot + 1} ${name} ${variant}`);
     root.append(d);
   }
 }

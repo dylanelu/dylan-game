@@ -14,7 +14,7 @@
     #panel button { font: inherit; color: #e6dcff; background: #1a1430cc; border: 1px solid #4a3a7a; border-radius: 4px; padding: 5px 8px; cursor: pointer; }
     #panel button:hover { background: #2a1f4acc; }
     #panel button.on { background: #6b3fd6; border-color: #b26bff; }
-    #panel.collapsed button:not(#toggle):not(#pause) { display: none; }
+    #panel.collapsed button:not(#toggle):not(#pause):not(#coop) { display: none; }
     #pause { font-weight: 700; letter-spacing: -1px; min-width: 32px; }
   </style>
 </head>
@@ -29,6 +29,7 @@
     <button data-act="clear" title="0">Clear</button>
     <button data-act="god" title="G">God</button>
     <button data-act="hitbox" title="H">Hitbox</button>
+    <button id="coop" data-act="coop" title="Play with friends: creates a room and copies its link">Co-op</button>
     <button id="toggle" data-act="toggle">Sandbox</button>
     <button id="pause" data-act="pause" title="Esc">II</button>
   </div>

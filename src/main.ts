@@ -3,6 +3,8 @@ import { Input } from './engine/input';
 import { Renderer } from './engine/renderer';
 import { loadAssets } from './game/assets';
 import { Game } from './game/game';
+import { Coop } from './net/coop';
+import { makeRoomCode } from './net/net';
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
@@ -28,6 +30,11 @@ panel.addEventListener('click', (e) => {
   audio.unlock();
   if (act === 'toggle') panel.classList.toggle('collapsed');
   else if (act === 'pause') game.setPaused(!game.paused);
+  else if (act === 'coop') {
+    if (!game.coop) joinRoom(makeRoomCode());
+    void navigator.clipboard?.writeText(game.coop!.link).catch(() => {});
+    game.banner(`ROOM ${game.coop!.roomId}  LINK COPIED`, '#b26bff', 2.4);
+  }
   else game.sandbox(act);
   sync();
 });
@@ -41,6 +48,14 @@ document.addEventListener('visibilitychange', () => {
   audio.setHidden(document.hidden);
 });
 if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || innerWidth < 700) panel.classList.add('collapsed');
+
+// co-op: a #room=CODE link joins that room (serverless WebRTC, see src/net)
+function joinRoom(code: string) {
+  game.coop = new Coop(game, code);
+  if (location.hash !== `#room=${code}`) history.replaceState(null, '', `#room=${code}`);
+}
+const m = location.hash.match(/room=([A-Z0-9]{3,12})/i);
+if (m) { joinRoom(m[1].toUpperCase()); game.banner(`JOINING ${m[1].toUpperCase()}`, '#b26bff', 2); }
 
 // Simulate exactly the time that passed since the last display frame, in substeps of at most 1/120 s.
 // A fixed step with no interpolation judders on 144 Hz screens (alternating 0 and 1 steps per frame);

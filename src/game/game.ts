@@ -1,10 +1,12 @@
 import type { Audio } from '../engine/audio';
 import type { Input } from '../engine/input';
 import type { PostParams, Renderer } from '../engine/renderer';
-import type { Assets } from './assets';
+import type { Coop } from '../net/coop';
+import { HERO_LOOKS, type Assets } from './assets';
 import { Boss } from './boss';
 import { Brute, Caster, Enemy, Ghoul, Shadow, type EnemyKind } from './enemies';
 import { Fx } from './fx';
+import { drawText, textWidth } from './font';
 import { drawHud } from './hud';
 import { Level } from './level';
 import { PARRY_PERFECT, Player } from './player';
@@ -16,9 +18,11 @@ export interface Bullet {
   team: 'enemy' | 'player'; heavy: boolean; life: number; age: number;
   color: string; kind: 'orb' | 'dagger' | 'big'; pierce: number;
   hits: Set<Enemy> | null; source: Enemy | null;
+  nid?: number;          // network id for enemy bullets (co-op)
+  cosmetic?: boolean;    // another player's shot: drawn, never deals damage here
 }
 
-interface Hazard { x: number; y: number; r: number; maxR: number; speed: number; dmg: number; hit: boolean }
+export interface Hazard { x: number; y: number; r: number; maxR: number; speed: number; dmg: number; hit: boolean }
 
 const lightCache = new Map<string, HTMLCanvasElement>();
 function lightSprite(color: string) {
@@ -56,6 +60,14 @@ export class Game {
   kills = 0;
   renderDt = 1 / 60;
   paused = false;
+  /** co-op session (null when playing solo) and the other players' characters */
+  coop: Coop | null = null;
+  remotes = new Map<string, Player>();
+  nextId = 0;
+  private bulletSeq = 0;
+  private mirroring = false;
+  /** solo, or the co-op host: this machine owns enemies, bullets and spawning */
+  get authority() { return !this.coop || this.coop.isHost; }
   private timers: { t: number; fn: () => void }[] = [];
 
   /** Schedule on game time, so hitstop and slow-mo stretch it like everything else. */
@@ -63,6 +75,7 @@ export class Game {
 
   /** Play a sound panned by where it happens on screen. */
   sfx(name: string, x?: number, vol = 1) {
+    if (this.mirroring) this.coop?.push({ t: 'sfx', n: name, x, v: vol });
     const pan = x === undefined || this.r.w < 2 ? 0 : ((x - this.cam.x) / this.r.w - 0.5) * 2;
     this.audio.play(name, { pan, vol });
   }
@@ -78,19 +91,23 @@ export class Game {
 
   // ------------------------------------------------------------------ juice API
 
-  shake(t: number) { this.trauma = Math.min(1, this.trauma + t); }
+  shake(t: number) { if (this.mirroring) this.coop?.push({ t: 'shake', v: t }); this.trauma = Math.min(1, this.trauma + t); }
   kick(x: number, y: number) { this.kickX += x; this.kickY += y; }
   hitstop(t: number) { this.stop = Math.max(this.stop, t); }
   slowmo(t: number, scale: number) { this.slowT = Math.max(this.slowT, t); this.slowScale = Math.min(this.slowScale, scale); }
   flash(color: string, a: number) {
+    if (this.mirroring) this.coop?.push({ t: 'flash', c: color, v: a });
     const c = parseInt(color.slice(1), 16);
     this.post.flashColor = [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
     this.post.flash = Math.max(this.post.flash, a);
   }
-  chroma(a: number) { this.post.chroma = Math.max(this.post.chroma, a); }
+  chroma(a: number) { if (this.mirroring) this.coop?.push({ t: 'chroma', v: a }); this.post.chroma = Math.max(this.post.chroma, a); }
   zoomPunch(a: number) { this.post.zoom = Math.max(this.post.zoom, 1 + a); }
-  banner(text: string, color: string, dur = 1.6) { this.bannerText = text; this.bannerColor = color; this.bannerT = 0; this.bannerDur = dur; }
-  hazard(x: number, y: number, maxR: number, speed: number, dmg: number) { this.hazards.push({ x, y, r: 10, maxR, speed, dmg, hit: false }); }
+  banner(text: string, color: string, dur = 1.6) { if (this.mirroring) this.coop?.push({ t: 'banner', s: text, c: color, d: dur }); this.bannerText = text; this.bannerColor = color; this.bannerT = 0; this.bannerDur = dur; }
+  hazard(x: number, y: number, maxR: number, speed: number, dmg: number) {
+    this.hazards.push({ x, y, r: 10, maxR, speed, dmg, hit: false });
+    if (this.coop?.isHost) this.coop.push({ t: 'hz', x, y, mr: maxR, sp: speed, dmg });
+  }
 
   // ------------------------------------------------------------------ spawning
 
@@ -103,21 +120,33 @@ export class Game {
         if (Math.hypot(x - p.x, y - p.y) > 150) break;
       }
     }
-    const e = kind === 'ghoul' ? new Ghoul(this, x!, y!) : kind === 'caster' ? new Caster(this, x!, y!)
-      : kind === 'brute' ? new Brute(this, x!, y!) : new Boss(this, x!, y!);
+    const e = this.makeEnemy(kind, x!, y!);
+    e.id = ++this.nextId;
     this.level.collide(e, e.r);
     this.enemies.push(e);
-    // gate portal
+    this.portal(e);
+    return e;
+  }
+
+  makeEnemy(kind: EnemyKind, x: number, y: number, shadowAnim = ''): Enemy {
+    if (kind === 'shadow') return new Shadow(this.A.anim(shadowAnim || 'masked_orc_idle_anim'), x, y, shadowAnim);
+    return kind === 'ghoul' ? new Ghoul(this, x, y) : kind === 'caster' ? new Caster(this, x, y)
+      : kind === 'brute' ? new Brute(this, x, y) : new Boss(this, x, y);
+  }
+
+  /** gate portal an enemy rises out of */
+  portal(e: Enemy) {
     this.fx.ring(e.x, e.y, e.boss ? 70 : 26, '#7a3cff', 0.7, 2);
     this.fx.burst(e.x, e.y, e.boss ? 40 : 12, { speed: 40, colors: ['#7a3cff', '#3a1a80', '#b26bff'], glow: true, grav: -90, vz: 50, life: 0.9, size: 2, drag: 2 });
     this.fx.splat(e.x, e.y, '#120a24', 10, e.boss ? 26 : 10);
     this.sfx('spawn', e.x);
-    return e;
   }
 
   spawnWave(kinds: EnemyKind[]) { kinds.forEach((k, i) => this.later(i * 0.14, () => this.spawn(k))); }
 
   sandbox(act: string) {
+    // in co-op only the host spawns; everyone else asks it to
+    if (!this.authority && ['ghoul', 'caster', 'brute', 'boss', 'wave', 'clear'].includes(act)) { this.coop!.push({ t: 'cmd', act }); return; }
     switch (act) {
       case 'ghoul': this.spawnWave(['ghoul', 'ghoul', 'ghoul']); break;
       case 'caster': this.spawnWave(['caster', 'caster']); break;
@@ -137,17 +166,51 @@ export class Game {
   }
 
   enemyBullet(x: number, y: number, a: number, speed: number, o: Partial<Bullet> = {}) {
-    this.bullets.push({
+    const b: Bullet = {
       x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 4, dmg: 10, team: 'enemy', heavy: false,
-      life: 6, age: 0, color: '#ff4a6a', kind: 'orb', pierce: 0, hits: null, source: null, ...o,
-    });
+      life: 6, age: 0, color: '#ff4a6a', kind: 'orb', pierce: 0, hits: null, source: null, nid: ++this.bulletSeq, ...o,
+    };
+    this.bullets.push(b);
+    if (this.coop?.isHost) this.coop.enemyBulletSpawned(b);
+  }
+
+  /** A shot from the local player: tell the others so they see it. */
+  onShot(b: Bullet) {
+    this.coop?.push({ t: 'pb', x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), r: b.r, c: b.color, k: b.kind, l: b.life });
+  }
+
+  /** Who an enemy goes after: the nearest living player, local or remote. */
+  targetFor(e: { x: number; y: number }): Player {
+    let best = this.player, bd = this.player.state === 'dead' ? Infinity : Math.hypot(this.player.x - e.x, this.player.y - e.y);
+    for (const p of this.remotes.values()) {
+      if (p.state === 'dead' || p.dissolved) continue;
+      const d = Math.hypot(p.x - e.x, p.y - e.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  /** An enemy attack landing on `target`. Local targets resolve now; remote ones resolve on their own machine,
+   *  and a parry there calls `onParried` here a moment later. */
+  attack(target: Player, src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean }, onParried?: () => void): HitResult | 'pending' {
+    if (target.peerId && this.coop) { this.coop.remoteAttack(target, src, dmg, o, onParried); return 'pending'; }
+    const res = this.hitPlayer(src, dmg, o);
+    if (res === 'parried') onParried?.();
+    return res;
   }
 
   // ------------------------------------------------------------------ combat resolution
 
   /** Every attack on the player funnels through here so dodge/parry/guard rules live in one place.
    *  Everything can be parried. Heavy (red-glint) attacks pay out more on a perfect parry and chip harder through a late guard. */
-  hitPlayer(src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe' }): HitResult {
+  hitPlayer(src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean; lag?: number }): HitResult {
+    // the local player's own reactions are never mirrored to other machines
+    const mirroring = this.mirroring, emit = this.fx.emit;
+    this.mirroring = false; this.fx.emit = null;
+    try { return this.resolveHit(src, dmg, o); } finally { this.mirroring = mirroring; this.fx.emit = emit; }
+  }
+
+  private resolveHit(src: { x: number; y: number }, dmg: number, o: { heavy?: boolean; kind: 'melee' | 'bullet' | 'aoe'; counter?: boolean; lag?: number }): HitResult {
     const p = this.player;
     if (p.state === 'dead') return 'ignored';
     if (p.iframes > 0) {
@@ -155,10 +218,21 @@ export class Game {
       return 'dodged';
     }
     if (p.invuln > 0) return 'ignored';
-    const phase = p.parryPhase;
+    // co-op: an attack resolved here for a host-side enemy arrives late (snapshot + network delay), so the
+    // perfect window stretches by that lag; the player reacted to what they saw, which was behind the host
+    const phase = p.state === 'parry' ? (p.t < PARRY_PERFECT + (o.lag ?? 0) ? 'perfect' : 'guard') : null;
     if (phase) {
       const fx = (src.x + p.x) / 2, fy = (src.y + p.y) / 2 - 28;
-      if (phase === 'perfect') { this.perfectParry(fx, fy, o.kind, !!o.heavy); return 'parried'; }
+      if (phase === 'perfect') {
+        this.perfectParry(fx, fy, o.kind, !!o.heavy);
+        if (o.counter) {
+          // counter-strike: step into the attacker
+          const dx = src.x - p.x, dy = src.y - p.y, l = Math.hypot(dx, dy) || 1;
+          p.play('riposte'); p.face = Math.sign(dx) || p.face;
+          p.vx += (dx / l) * 140; p.vy += (dy / l) * 140;
+        }
+        return 'parried';
+      }
       // guard: late parry still blocks most of it
       this.damagePlayer(Math.round(dmg * (o.heavy ? 0.5 : 0.25)), src, true);
       this.sfx('guard', p.x); this.shake(0.15); this.hitstop(0.04);
@@ -200,26 +274,33 @@ export class Game {
     p.mana = Math.min(p.maxMana, p.mana + 35);
     p.empowered = Math.min(6, p.empowered + 3);
     this.combo++; this.comboT = 3;
-    this.sfx('parry', x); this.audio.muffleFor(0.3, 900); this.audio.duck(0.35, 0.5);
+    this.audio.muffleFor(0.3, 900); this.audio.duck(0.35, 0.5);
     this.hitstop(heavy ? 0.15 : kind === 'bullet' ? 0.05 : 0.1);
     this.slowmo(heavy ? 0.45 : 0.28, heavy ? 0.25 : 0.35);
     this.shake(heavy ? 0.55 : 0.3); this.chroma(heavy ? 2.2 : 1.6); this.flash(heavy ? '#ffd8e0' : '#ffffff', heavy ? 0.32 : 0.22); this.zoomPunch(heavy ? 0.06 : 0.035);
-    if (heavy) { this.fx.ring(x, y, 100, '#ff3355', 0.45, 3); p.empowered = Math.min(8, p.empowered + 2); }
-    this.fx.ring(x, y, 44, '#ffffff', 0.25, 3);
-    this.fx.ring(x, y, 70, '#b26bff', 0.4, 2);
-    this.fx.burst(x, y, 22, { speed: 260, colors: ['#ffffff', '#e8dcff', '#ffd84a'], glow: true, life: 0.3, grav: 0, drag: 6, size: 1 });
-    this.fx.light(x, y, 140, '#e8dcff', 1);
+    if (heavy) p.empowered = Math.min(8, p.empowered + 2);
+    this.parryFx(x, y, heavy, false);
+    this.coop?.push({ t: 'pfx', x: Math.round(x), y: Math.round(y), h: heavy ? 1 : 0 });
     const word = heavy ? 'DEFLECT' : 'PERFECT';
     this.fx.text(p.x, p.y - Player.HEAD - 16, this.combo > 1 ? `${word} x${this.combo}` : word, heavy ? '#ffd84a' : '#ffffff', heavy ? 2 : 1, 0.8);
   }
 
-  /** Perfect parry on a normal enemy: stagger it and counter-strike instantly. */
+  /** The sparks, rings and clang of a perfect parry; `remote` is another player's parry seen from here. */
+  parryFx(x: number, y: number, heavy: boolean, remote: boolean) {
+    this.sfx('parry', x, remote ? 0.6 : 1);
+    if (heavy) this.fx.ring(x, y, 100, '#ff3355', 0.45, 3);
+    this.fx.ring(x, y, 44, '#ffffff', 0.25, 3);
+    this.fx.ring(x, y, 70, '#b26bff', 0.4, 2);
+    this.fx.burst(x, y, remote ? 12 : 22, { speed: 260, colors: ['#ffffff', '#e8dcff', '#ffd84a'], glow: true, life: 0.3, grav: 0, drag: 6, size: 1 });
+    this.fx.light(x, y, 140, '#e8dcff', 1);
+  }
+
+  /** Perfect parry on a normal enemy: stagger it and land the counter-strike. (The parrying player's lunge
+   *  plays on their own machine, in resolveHit.) */
   riposte(e: Enemy, dmg: number) {
     e.parried(this);
-    const p = this.player, d = e.dirTo(p.x, p.y);
-    p.play('riposte'); p.face = Math.sign(e.x - p.x) || p.face;
+    const t = this.targetFor(e), d = e.dirTo(t.x, t.y);
     this.sfx('riposte', e.x);
-    p.vx += -d.dx * 140; p.vy += -d.dy * 140;   // step into the counter
     this.later(0.07, () => {
       if (e.dead) return;
       e.hurt(this, dmg, -d.dx, -d.dy, { crit: true, knock: 160, how: 'riposte' });
@@ -249,10 +330,11 @@ export class Game {
     }
     // ARISE: enemies killed by a riposte come back as shadow soldiers
     const allies = this.enemies.filter((x) => x.ally && !x.dead).length;
-    if (how === 'riposte' && allies < 4) {
+    if (how === 'riposte' && allies < 4 && this.authority) {
       const anim = (e as Ghoul).idleAnim ?? e.anim;
       this.later(0.45, () => {
-        const s = new Shadow(anim, e.x, e.y);
+        const s = new Shadow(anim, e.x, e.y, e.shadowAnim);
+        s.id = ++this.nextId;
         this.enemies.push(s);
         this.fx.text(e.x, e.y - 48, 'ARISE', '#b26bff', 2, 1);
         this.fx.burst(e.x, e.y, 26, { speed: 30, colors: ['#5a2ccf', '#b26bff', '#1a0a40'], glow: true, grav: -140, vz: 90, life: 1, size: 2, drag: 1 });
@@ -273,7 +355,12 @@ export class Game {
   }
 
   update(dt: number) {
-    if (this.paused) { this.post.desat += (0.55 - this.post.desat) * Math.min(1, dt * 8); return; }
+    if (this.paused) {
+      this.post.desat += (0.55 - this.post.desat) * Math.min(1, dt * 8);
+      // solo: freeze. co-op: the world keeps going for everyone else; only our inputs stop
+      if (!this.coop || !this.remotes.size) return;
+      this.input.events.length = 0; this.input.firing = false; this.input.move = { x: 0, y: 0 };
+    }
     this.time += dt;
     const p = this.player;
 
@@ -308,6 +395,8 @@ export class Game {
     if (this.input.device === 'touch' && this.input.firing) this.aimAssist();
 
     p.update(this, sdt);
+    for (const rp of this.remotes.values()) rp.simRemote(this, sdt);
+    this.coop?.tick(dt);
     if (p.state === 'dead') {
       this.deadT += dt;
       // after the fall, the body burns away into shadow
@@ -324,7 +413,10 @@ export class Game {
     this.timers = this.timers.filter((tm) => tm.t > 0);
     for (const tm of due) tm.fn();
 
+    // the host's AI cues (glints, telegraphs, roars, shakes) are mirrored to everyone else
+    if (this.coop?.isHost) { this.mirroring = true; this.fx.emit = (op, args) => this.coop!.mirror(op, args); }
     for (const e of this.enemies) e.update(this, sdt);
+    this.mirroring = false; this.fx.emit = null;
     this.separate();
     this.updateBullets(sdt);
     this.updateHazards(sdt);
@@ -377,7 +469,7 @@ export class Game {
 
   private separate() {
     const list = this.enemies;
-    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    if (this.authority) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
       const a = list[i], b = list[j];
       if (a.state === 'spawn' || b.state === 'spawn') continue;
       const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), m = a.r + b.r;
@@ -414,16 +506,20 @@ export class Game {
         if (d < b.r + p.r + 3) {
           const res = this.hitPlayer(b, b.dmg, { heavy: b.heavy, kind: 'bullet' });
           if (res === 'parried') this.reflect(b);
-          else if (res !== 'dodged') b.life = 0;
+          else if (res !== 'dodged') { b.life = 0; if (b.nid) this.coop?.push({ t: 'bk', id: b.nid }); }
         }
       } else {
         for (const e of this.enemies) {
+          if (b.cosmetic) break;
           if (e.ally || e.dead || e.state === 'spawn' || b.hits?.has(e)) continue;
           const z = e instanceof Boss ? e.z : 0;
           const ex = e.x, ey = e.y - e.height() * 0.45 - z, rr = e.r + b.r + (e.boss ? 10 : 2);
           if (Math.abs(b.x - ex) < rr && Math.abs(b.y - ey) < e.height() * 0.5 + b.r) {
             const l = Math.hypot(b.vx, b.vy) || 1;
-            e.hurt(this, b.dmg, b.vx / l, b.vy / l, { knock: b.kind === 'big' ? 120 : 45 });
+            const knock = b.kind === 'big' ? 120 : 45;
+            e.hurt(this, b.dmg, b.vx / l, b.vy / l, { knock });
+            // on a co-op client that was instant feedback; the host owns the real hp
+            if (!this.authority) this.coop!.push({ t: 'dmg', id: e.id, dmg: b.dmg, dx: b.vx / l, dy: b.vy / l, kn: knock });
             this.hitstop(b.kind === 'big' ? 0.035 : 0.012);
             b.hits?.add(e);
             if (b.pierce-- <= 0) { b.life = 0; break; }
@@ -435,7 +531,7 @@ export class Game {
   }
 
   /** Parried bullets fly back as empowered player shots aimed at whoever fired them. */
-  private reflect(b: Bullet) {
+  reflect(b: Bullet, broadcast = true) {
     this.sfx('reflect', b.x);
     const wasHeavy = b.heavy;
     b.team = 'player'; b.heavy = false; b.color = wasHeavy ? '#ffd84a' : '#e8dcff'; b.kind = 'big'; b.dmg = wasHeavy ? 60 : 28; b.pierce = wasHeavy ? 3 : 1; b.life = 1.5;
@@ -444,7 +540,8 @@ export class Game {
     if (b.source && !b.source.dead) { tx = b.source.x; ty = b.source.y - b.source.height() * 0.5; }
     const dx = tx - b.x, dy = ty - b.y, l = Math.hypot(dx, dy) || 1, sp = 380;
     b.vx = (dx / l) * sp; b.vy = (dy / l) * sp;
-    if (b.source instanceof Boss) b.source.addPosture(this, wasHeavy ? 10 : 4);
+    if (this.authority && b.source instanceof Boss) b.source.addPosture(this, wasHeavy ? 10 : 4);
+    if (broadcast && b.nid) this.coop?.push({ t: 'rf', id: b.nid, vx: Math.round(b.vx), vy: Math.round(b.vy), h: wasHeavy ? 1 : 0 });
   }
 
   private updateHazards(dt: number) {
@@ -465,10 +562,15 @@ export class Game {
 
   private respawn() {
     const p = new Player(this.level.width / 2, this.level.height / 2 + 40);
+    p.slot = this.player.slot;
     this.player = p;
-    this.bullets = []; this.hazards = [];
-    this.enemies = this.enemies.filter((e) => e.boss);
-    for (const e of this.enemies) if (e instanceof Boss) { e.hp = e.maxHp; e.phase = 1; e.posture = 0; e.setState('idle'); }
+    p.slot = this.player.slot;
+    this.hazards = [];
+    if (this.authority && !this.remotes.size) {
+      this.bullets = [];
+      this.enemies = this.enemies.filter((e) => e.boss);
+      for (const e of this.enemies) if (e instanceof Boss) { e.hp = e.maxHp; e.phase = 1; e.posture = 0; e.setState('idle'); }
+    }
     this.banner('ARISE', '#b26bff', 1.6);
     this.fx.burst(p.x, p.y, 30, { speed: 40, colors: ['#5a2ccf', '#b26bff'], glow: true, grav: -120, vz: 80, life: 1, size: 2 });
   }
@@ -501,6 +603,7 @@ export class Game {
     for (const e of this.enemies) items.push({ y: e.y, draw: () => e.draw(this, s, cx, cy) });
     const p = this.player;
     items.push({ y: p.y, draw: () => p.draw(this, s, gl, cx, cy, this.renderDt) });
+    for (const rp of this.remotes.values()) items.push({ y: rp.y, draw: () => rp.draw(this, s, gl, cx, cy, this.renderDt) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     for (const e of this.enemies) e.drawGlow(this, gl, cx, cy);
@@ -531,7 +634,16 @@ export class Game {
     const ux = Math.round(camX), uy = Math.round(camY);
     this.fx.drawTexts(ui, ux, uy);
     if (this.showHitbox) this.drawHitboxes(ui, ux, uy);
+    // co-op name tags in each player's trim color
+    if (this.coop) {
+      for (const pl of [this.player, ...this.remotes.values()]) {
+        if (pl.dissolved) continue;
+        const look = HERO_LOOKS[pl.slot], tag = pl === this.player ? 'YOU' : `P${pl.slot + 1}`;
+        drawText(ui, tag, Math.round(pl.x - ux) - textWidth(tag) / 2, Math.round(pl.y - uy) - Player.HEAD - 10, look.trim);
+      }
+    }
     drawHud(this, ui);
+    this.coop?.flush();
 
     R.present(this.post, this.time);
   }

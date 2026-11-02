@@ -2,11 +2,12 @@
 // the game needs: integer-scaled frames, white hit-flash frames, shadow-tinted frames.
 
 export type Sprite = HTMLCanvasElement;
+export interface HeroSet { idle: Anim; run: Anim; hit: Anim; roll: Anim; fall: Anim }
 export interface Anim { normal: Sprite[]; flash: Sprite[]; shadow: Sprite[]; w: number; h: number }
 
 export interface Assets {
-  /** the 0x72 elf, recolored and hand-edited into Dylan: black hair, black coat, purple trim */
-  hero: { idle: Anim; run: Anim; hit: Anim; roll: Anim; fall: Anim };
+  /** the 0x72 elf, recolored and hand-edited into Dylan; one set per player color (index 0 is Dylan) */
+  heroes: HeroSet[];
   /** shadow dagger (knife sprite recolored), blade pointing up, grip at the bottom */
   dagger: { img: Sprite; flash: Sprite; w: number; h: number };
   tile(name: string, frame?: number): Sprite;   // 2x scaled
@@ -51,22 +52,29 @@ function grade(img: HTMLImageElement): Sprite {
   return c;
 }
 
-// elf_m palette → Dylan. Hair goes black with a violet sheen, eyes dark, tunic becomes a black coat with
-// a purple collar, pants charcoal. Skin stays.
-const DYLAN_PALETTE: Record<string, [number, number, number]> = {
-  facb3e: [0x1d, 0x1a, 0x29],   // hair light → near-black
-  ee8e2e: [0x10, 0x0e, 0x16],   // hair dark → black
-  fccba3: [0xee, 0xb8, 0x90],   // skin, a touch warmer so it holds up under light
-  e2b694: [0xc9, 0x92, 0x6e],   // skin shadow
-  '5698cc': [0x16, 0x12, 0x20], // eyes
-  '4ba747': [0x33, 0x2f, 0x48], // tunic → coat
-  '314152': [0x8a, 0x4c, 0xf0], // collar line → purple trim
-  '3d734f': [0x1f, 0x1d, 0x29], // pants/hem
-};
-const HAIR_SHEEN: [number, number, number] = [0x46, 0x3c, 0x6c];
+type RGB = [number, number, number];
+const rgb = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
-/** Recolor one elf frame into Dylan, then apply the hand edits, at integer scale. */
-function dylanize(img: HTMLImageElement, sx: number, sy: number, w: number, h: number, s: number): Sprite {
+/** A player look: coat, trim, hair. Index 0 is Dylan (black hair, black coat, purple trim). */
+export interface HeroLook { name: string; coat: string; trim: string; trimDark: string; hair: string; hairDark: string; sheen: string; pants: string }
+export const HERO_LOOKS: HeroLook[] = [
+  { name: 'DYLAN', coat: '#332f48', trim: '#8a4cf0', trimDark: '#4e2e90', hair: '#1d1a29', hairDark: '#100e16', sheen: '#463c6c', pants: '#1f1d29' },
+  { name: 'CRIMSON', coat: '#3a2228', trim: '#ff4a5a', trimDark: '#8e2230', hair: '#4a2a1e', hairDark: '#2a1610', sheen: '#7a4a32', pants: '#26171a' },
+  { name: 'AZURE', coat: '#1f2c44', trim: '#3ab0ff', trimDark: '#1e5a8e', hair: '#d8dcec', hairDark: '#9aa0b8', sheen: '#ffffff', pants: '#161e2e' },
+  { name: 'GOLD', coat: '#3a3020', trim: '#ffc83a', trimDark: '#8e6a1e', hair: '#facb3e', hairDark: '#ee8e2e', sheen: '#fff0a0', pants: '#261f14' },
+  { name: 'VERDANT', coat: '#1d3628', trim: '#4aff8a', trimDark: '#1e8e4a', hair: '#26402e', hairDark: '#14241a', sheen: '#4a7a56', pants: '#14241a' },
+  { name: 'ROSE', coat: '#3a2238', trim: '#ff6ad8', trimDark: '#8e2e78', hair: '#c04a9a', hairDark: '#7a2a60', sheen: '#ff9ade', pants: '#26162a' },
+];
+
+/** Recolor one elf frame into a player look, then apply the hand edits, at integer scale. */
+function dylanize(img: HTMLImageElement, sx: number, sy: number, w: number, h: number, s: number, look: HeroLook): Sprite {
+  // elf_m palette → look. Skin is warmed a touch so it holds up under light; eyes go dark.
+  const PALETTE: Record<string, RGB> = {
+    facb3e: rgb(look.hair), ee8e2e: rgb(look.hairDark),
+    fccba3: [0xee, 0xb8, 0x90], e2b694: [0xc9, 0x92, 0x6e], '5698cc': [0x16, 0x12, 0x20],
+    '4ba747': rgb(look.coat), '314152': rgb(look.trim), '3d734f': rgb(look.pants),
+  };
+  const hair = rgb(look.hair), coat = rgb(look.coat), sheen = rgb(look.sheen), trimDark = rgb(look.trimDark);
   const src = canvas(w, h);
   src.ctx.drawImage(img, sx, sy, w, h, 0, 0, w, h);
   const d = src.ctx.getImageData(0, 0, w, h), p = d.data;
@@ -78,26 +86,26 @@ function dylanize(img: HTMLImageElement, sx: number, sy: number, w: number, h: n
     if (!p[i + 3]) continue;
     const k = hex(i);
     if ((k === 'facb3e' || k === 'ee8e2e') && y < top) top = y;
-    const m = DYLAN_PALETTE[k];
+    const m = PALETTE[k];
     if (m) { p[i] = m[0]; p[i + 1] = m[1]; p[i + 2] = m[2]; }
   }
   // hand edits ---------------------------------------------------------------------------------
   // 1. a two-pixel violet glint on the crown: reads as glossy black hair (a full row read as a headband)
   for (const x of [8, 9]) {
     const i = at(x, top + 1);
-    if (p[i + 3] && p[i] === 0x1d && p[i + 1] === 0x1a) { p[i] = HAIR_SHEEN[0]; p[i + 1] = HAIR_SHEEN[1]; p[i + 2] = HAIR_SHEEN[2]; }
+    if (p[i + 3] && p[i] === hair[0] && p[i + 1] === hair[1] && p[i + 2] === hair[2]) p.set([...sheen, 255], i);
   }
   // 2. a messy spike above the crown (Dylan's hair sticks up), drawn with outline
   const sx0 = 6;
   if (top > 1) {
     const i = at(sx0, top - 1), o = at(sx0, top - 2);
-    p.set([0x12, 0x10, 0x19, 255], i); p.set([0x22, 0x22, 0x22, 255], o);
+    p.set([...rgb(look.hairDark), 255], i); p.set([0x22, 0x22, 0x22, 255], o);
     p.set([0x22, 0x22, 0x22, 255], at(sx0 - 1, top - 1));
   }
-  // 3. purple trim down the coat's front edge, matching the reference's open coat
+  // 3. trim down the coat's front edge, matching the reference's open coat
   for (let y = top + 10; y < h - 4; y++) {
     const i = at(11, y);
-    if (p[i + 3] && p[i] === 0x33 && p[i + 1] === 0x2f) { p[i] = 0x4e; p[i + 1] = 0x2e; p[i + 2] = 0x90; }
+    if (p[i + 3] && p[i] === coat[0] && p[i + 1] === coat[1] && p[i + 2] === coat[2]) p.set([...trimDark, 255], i);
   }
   src.ctx.putImageData(d, 0, 0);
   const out = canvas(w * s, h * s);
@@ -155,22 +163,25 @@ export async function loadAssets(base = ''): Promise<Assets> {
   const variants = (normal: Sprite[], w: number, h: number): Anim => ({
     normal, w, h, flash: normal.map((f) => tinted(f, '#ffffff')), shadow: normal.map((f) => tinted(f, '#4a22b0', 0.9)),
   });
-  const heroCut = (name: string) => {
-    const d = defs.get(name)!;
-    return Array.from({ length: d.n }, (_, i) => dylanize(sheetImg, d.x + i * d.w, d.y, d.w, d.h, 2));
+  const heroSet = (look: HeroLook): HeroSet => {
+    const cutHero = (name: string) => {
+      const d = defs.get(name)!;
+      return Array.from({ length: d.n }, (_, i) => dylanize(sheetImg, d.x + i * d.w, d.y, d.w, d.h, 2, look));
+    };
+    const run = cutHero('elf_m_run_anim'), idle = cutHero('elf_m_idle_anim'), hit = cutHero('elf_m_hit_anim');
+    // roll: the run pose tumbling in quarter turns (90° rotations stay pixel-perfect)
+    const roll = [1, 2, 3, 0].map((q) => rotated(run[1], q * Math.PI / 2, 16, 40));
+    // fall: the hit pose tipping over backwards
+    const fall = [-0.45, -1.0, -Math.PI / 2].map((a) => rotated(hit[0], a, 16, 54));
+    return {
+      idle: variants(idle, 32, 56), run: variants(run, 32, 56), hit: variants(hit, 32, 56),
+      roll: variants(roll, roll[0].width, roll[0].height), fall: variants(fall, fall[0].width, fall[0].height),
+    };
   };
-  const run = heroCut('elf_m_run_anim'), idle = heroCut('elf_m_idle_anim'), hit = heroCut('elf_m_hit_anim');
-  // roll: the run pose tumbling in quarter turns (90° rotations stay pixel-perfect)
-  const roll = [1, 2, 3, 0].map((q) => rotated(run[1], q * Math.PI / 2, 16, 40));
-  // fall: the hit pose tipping over backwards
-  const fall = [-0.45, -1.0, -Math.PI / 2].map((a) => rotated(hit[0], a, 16, 54));
   const knife = defs.get('weapon_knife')!;
   const dagger = shadowBlade(sheetImg, knife.x, knife.y, knife.w, knife.h, 2);
   return {
-    hero: {
-      idle: variants(idle, 32, 56), run: variants(run, 32, 56), hit: variants(hit, 32, 56),
-      roll: variants(roll, roll[0].width, roll[0].height), fall: variants(fall, fall[0].width, fall[0].height),
-    },
+    heroes: HERO_LOOKS.map(heroSet),
     dagger: { img: dagger, flash: tinted(dagger, '#ffffff'), w: dagger.width, h: dagger.height },
     tile(name, frame = 0) {
       const key = `${name}:${frame}`;

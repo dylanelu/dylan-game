@@ -23,10 +23,13 @@ export class Fx {
   afters: After[] = [];
   lights: Light[] = [];           // cleared every frame
   telegraphs: Telegraph[] = [];
+  /** co-op host: set while enemies think, so their visual cues are mirrored to other players */
+  emit: ((op: string, args: unknown[]) => void) | null = null;
 
   constructor(private decalCtx: CanvasRenderingContext2D) {}
 
   burst(x: number, y: number, n: number, o: Partial<Particle> & { speed?: number; spread?: number; angle?: number; colors?: string[] } = {}) {
+    this.emit?.('burst', [x, y, n, o]);
     const speed = o.speed ?? 120, spread = o.spread ?? Math.PI * 2, angle = o.angle ?? 0;
     for (let i = 0; i < n; i++) {
       const a = angle + (Math.random() - 0.5) * spread, s = speed * rnd(0.3, 1);
@@ -40,10 +43,13 @@ export class Fx {
   }
 
   ring(x: number, y: number, r1: number, color: string, dur = 0.3, width = 2, r0 = 2) {
+    this.emit?.('ring', [x, y, r1, color, dur, width, r0]);
     this.rings.push({ x, y, r0, r1, t: 0, dur, color, width });
   }
-  glint(x: number, y: number, color: string, size = 7, dur = 0.32) { this.glints.push({ x, y, t: 0, dur, color, size }); }
+  glint(x: number, y: number, color: string, size = 7, dur = 0.32) { this.emit?.('glint', [x, y, color, size, dur]); this.glints.push({ x, y, t: 0, dur, color, size }); }
+  telegraph(t: Telegraph) { this.emit?.('telegraph', [t]); this.telegraphs.push({ ...t }); }
   text(x: number, y: number, text: string, color: string, scale = 1, dur = 0.7, vy = -28) {
+    this.emit?.('text', [x, y, text, color, scale, dur, vy]);
     this.texts.push({ x, y, text, color, t: 0, dur, scale, vy });
   }
   /** Fading ghost of a sprite; (ax, ay) is the sprite's feet anchor inside `img`. */
@@ -71,6 +77,7 @@ export class Fx {
   light(x: number, y: number, r: number, color: string, a = 1) { this.lights.push({ x, y, r, color, a }); }
 
   splat(x: number, y: number, color: string, n = 6, size = 5) {
+    this.emit?.('splat', [x, y, color, n, size]);
     const g = this.decalCtx;
     g.fillStyle = color;
     for (let i = 0; i < n; i++) {
