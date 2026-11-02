@@ -11,7 +11,8 @@ const canvas = document.getElementById('screen') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
 const input = new Input(canvas, renderer);
 const audio = new Audio();
-audio.init();   // start decoding clips right away; the first gesture resumes playback
+audio.init();
+if (new URLSearchParams(location.search).has('mute')) audio.muted = true;   // ?mute: silent dev / test sessions   // start decoding clips right away; the first gesture resumes playback
 input.onFirstGesture(() => audio.unlock());
 
 const game = new Game(renderer, input, audio, await loadAssets());

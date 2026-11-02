@@ -4,6 +4,8 @@ import type { PostParams, Renderer } from '../engine/renderer';
 import type { Coop } from '../net/coop';
 import { HERO_LOOKS, type Assets } from './assets';
 import { Boss } from './boss';
+import { isRosterBoss, ScriptedBoss } from './bossmoves';
+import { isMob, Mob } from './mobs';
 import { ArmoredTitan, ShadowKnight, Titan, Toji } from './bosses';
 import { Brute, Caster, Enemy, Ghoul, Shadow, type EnemyKind } from './enemies';
 import { Fx } from './fx';
@@ -153,7 +155,11 @@ export class Game {
       case 'knight': return new ShadowKnight(this, x, y);
       case 'toji': return new Toji(this, x, y);
       case 'atitan': return new ArmoredTitan(this, x, y);
-      default: return new Boss(this, x, y);
+      case 'boss': return new Boss(this, x, y);
+      default:
+        if (isMob(kind)) return new Mob(this, x, y, kind);
+        if (isRosterBoss(kind)) return new ScriptedBoss(this, x, y, kind);
+        return new Boss(this, x, y);
     }
   }
 
@@ -200,6 +206,13 @@ export class Game {
   /** A shot from the local player: tell the others so they see it. */
   onShot(b: Bullet) {
     this.coop?.push({ t: 'pb', x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), r: b.r, c: b.color, k: b.kind, l: b.life });
+  }
+
+  /** Every living hunter in the night, local and remote. */
+  allPlayers(): Player[] {
+    const out: Player[] = this.player.state === 'dead' ? [] : [this.player];
+    for (const p of this.remotes.values()) if (p.state !== 'dead' && !p.dissolved) out.push(p);
+    return out;
   }
 
   /** Who an enemy goes after: the nearest living player, local or remote. */
@@ -509,7 +522,7 @@ export class Game {
 
   /** Arriving at the end of the rope: a spinning cut. Titans take it on the nape. */
   private hookStrike(e: Enemy) {
-    const p = this.player, titan = e.kind === 'titan' || e.kind === 'atitan';
+    const p = this.player, titan = e.kind === 'titan' || e.kind === 'atitan' || e.kind === 'femaletitan';
     const dmg = 30 * p.dmgMul * (titan ? 3 : 1), dx = Math.sign(e.x - p.x) || 1;
     this.damageEnemy(e, dmg, dx, 0, { crit: true, knock: 120, how: titan ? 'nape' : 'riposte' });
     p.play('riposte'); p.parryAngle = Math.atan2(e.y - 20 - p.y, e.x - p.x);
@@ -527,7 +540,7 @@ export class Game {
 
   /** XP an enemy is worth when it dies near you. */
   private xpFor(e: Enemy) {
-    const base = e instanceof Boss ? (e.final ? 400 : 220) : e.kind === 'titan' ? 45 : e.elite ? 140 : e.kind === 'brute' ? 22 : e.kind === 'caster' ? 9 : e.kind === 'ghoul' ? 7 : 0;
+    const base = e instanceof Boss ? (e.final ? 400 : 220) : e instanceof Mob ? e.def.xp * (e.small ? 0.5 : 1) : e.kind === 'titan' ? 45 : e.elite ? 140 : e.kind === 'brute' ? 22 : e.kind === 'caster' ? 9 : e.kind === 'ghoul' ? 7 : 0;
     return Math.round(base * 1.6 * (1 + 0.2 * (e.level - 1)));
   }
 
@@ -650,6 +663,10 @@ export class Game {
     p.aimX = a.x + this.cam.x; p.aimY = a.y + this.cam.y;
     if (this.input.device === 'touch' && this.input.firing) this.aimAssist();
 
+    // early in a touch roll, keep turning it toward the whole swipe (see Input.rollSwipe)
+    const sw = this.input.rollSwipe;
+    if (sw && p.state === 'roll' && p.t < 0.12) { const l = Math.hypot(sw.dx, sw.dy) || 1; p.rollDx = sw.dx / l; p.rollDy = sw.dy / l; }
+    else if (p.state !== 'roll') this.input.rollSwipe = null;
     p.update(this, sdt);
     this.updateHook(sdt);
     for (const rp of this.remotes.values()) rp.simRemote(this, sdt);

@@ -2,6 +2,7 @@ import type { EnemyKind } from './enemies';
 import type { Game } from './game';
 import { itemName, RARITY, rollLoot, type Item } from './items';
 import type { NightSave } from './save';
+import { FINALS, LAIR_POOLS } from './roster';
 import { TILE, type Room } from './world';
 
 // One night, ~10 minutes. Drop in, clear camps and mini-bosses to level up and find gear while the shadow
@@ -10,9 +11,27 @@ import { TILE, type Room } from './world';
 export const NIGHT_LENGTH = 600;
 export const BOSS_AT = 540;
 /** [time (s), storm radius (px)]: holds, then shrinks; interpolated between keys */
-const STORM: [number, number][] = [[0, 3800], [120, 3800], [180, 2400], [290, 2400], [350, 1400], [440, 1400], [500, 620], [BOSS_AT, 620], [NIGHT_LENGTH, 340]];
+const STORM: [number, number][] = [[0, 5600], [120, 5600], [180, 3600], [290, 3600], [350, 2100], [440, 2100], [500, 900], [BOSS_AT, 900], [NIGHT_LENGTH, 420]];
 
-interface Camp { room: Room; state: 'dormant' | 'active' | 'cleared'; ids: number[] }
+interface Camp { room: Room; state: 'dormant' | 'active' | 'cleared'; ids: number[]; boss?: EnemyKind }
+
+/** What each place's camps are made of (titan camps add titans on top). */
+const MOBS_AT: Record<string, EnemyKind[]> = {
+  'ARISE ARENA': ['ghoul', 'caster', 'brute', 'ghoul'],
+  'TOJI TOWERS': ['ghoul', 'brute', 'cyclops', 'kappa'],
+  'GOJO GATE': ['ghoul', 'caster', 'kappa'],
+  'TITAN WALLS': ['brute', 'ghoul', 'cyclops'],
+  'RUINED VILLAGE': ['slime', 'skull', 'ghoul', 'lantern'],
+  'MIRROR LAKE': ['slime', 'kappa', 'spore', 'viper'],
+  'SHADOW WOODS': ['spider', 'viper', 'ghoul', 'spore'],
+  'SHIBUYA STATION': ['ghoul', 'flyhead', 'caster', 'phantom'],
+  'ASHINA CASTLE': ['ghoul', 'viper', 'kappa', 'caster', 'cyclops'],
+  'RED GATE': ['bear', 'phantom', 'skull', 'caster'],
+  'FOREST OF GIANT TREES': ['spider', 'viper', 'spore', 'lantern'],
+  'JEJU ISLAND': ['larva', 'spider', 'flyhead', 'larva'],
+  'THE FIELDS': ['ghoul', 'slime', 'flyhead', 'caster', 'viper', 'skull'],
+};
+const NAMED_BOSS: Record<string, EnemyKind> = { shadowKnight: 'knight', toji: 'toji', armoredTitan: 'atitan', patchwork: 'patchwork', antking: 'antking', baruka: 'baruka', genichiro: 'genichiro', femaletitan: 'femaletitan' };
 export interface Chest { id: number; x: number; y: number; opened: boolean; t: number }
 export interface Drop { x: number; y: number; z: number; vz: number; vx: number; vy: number; item: Item; t: number }
 
@@ -42,9 +61,15 @@ export class Night {
     // every named place has its boss, each guarding a unique reward
     const mbs = w.rooms.filter((r) => r.kind === 'miniboss');
     this.activeMb = new Set(mbs.map((r) => r.id));
-    for (const r of mbs) this.camps.set(r.id, { room: r, state: 'dormant', ids: [] });
-    void rand;
+    // lairs roll tonight's boss from their pool; the gate rolls tonight's final boss
+    for (const r of mbs) {
+      const pool = r.pool ? LAIR_POOLS[r.pool] : null;
+      this.camps.set(r.id, { room: r, state: 'dormant', ids: [], boss: pool ? pool[Math.floor(rand() * pool.length)] : NAMED_BOSS[r.boss!] });
+    }
+    this.finalBoss = FINALS[Math.floor(rand() * FINALS.length)];
   }
+  /** tonight's final boss */
+  finalBoss: EnemyKind = 'boss';
 
   get cx() { return this.g.level.arena.cx; }
   get cy() { return this.g.level.arena.cy; }
@@ -120,7 +145,7 @@ export class Night {
       // everyone still out in the dark is pulled to the gate
       for (const e of g.enemies) if (!e.ally && !e.boss) e.dead = true;
       g.enemies = g.enemies.filter((e) => !e.dead);
-      const boss = g.spawn('boss', this.cx, this.cy - 60, 12);
+      const boss = g.spawn(this.finalBoss, this.cx, this.cy - 60, 12);
       g.banner('THE GATE OPENS', '#ff3355', 3);
       g.coop?.push({ t: 'gate' });
       g.gatePull();
@@ -132,16 +157,16 @@ export class Night {
     const g = this.g, r = camp.room;
     camp.state = 'active';
     if (r.kind === 'miniboss') {
-      const kind: EnemyKind = r.boss === 'toji' ? 'toji' : r.boss === 'armoredTitan' ? 'atitan' : 'knight';
-      const e = g.spawn(kind, r.cx, r.cy, r.level);
+      const e = g.spawn(camp.boss ?? 'knight', r.cx, r.cy, r.level);
       camp.ids.push(e.id);
       return;
     }
-    const area = (r.x1 - r.x0) * (r.y1 - r.y0);
+    const area = (r.x1 - r.x0) * (r.y1 - r.y0), table = MOBS_AT[r.poi] ?? MOBS_AT['THE FIELDS'];
     const n = r.titans ? 4 : Math.min(7, 3 + Math.floor(area / 45));
     for (let i = 0; i < n; i++) {
-      const roll = Math.random();
-      const kind: EnemyKind = r.titans && i < 2 ? 'titan' : roll < 0.55 ? 'ghoul' : roll < 0.85 || r.level < 3 ? 'caster' : 'brute';
+      // low-level camps lean on the first (easiest) entries of their table
+      const pick = table[Math.floor(Math.random() * Math.min(table.length, 2 + r.level))];
+      const kind: EnemyKind = r.titans && i < 2 ? 'titan' : pick;
       const pos = g.level.spotIn(r);
       g.later(i * 0.12, () => { const e = g.spawn(kind, pos.x, pos.y, r.level + (Math.random() < 0.25 ? 1 : 0)); camp.ids.push(e.id); });
       camp.ids.push(-1 - i);   // placeholder so the camp isn't "cleared" before its wave finishes spawning

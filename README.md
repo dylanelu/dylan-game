@@ -3,7 +3,7 @@
 A top-down pixel-art action game for phone and desktop: a Solo Leveling style hunter clearing a gate, with
 Sekiro parries, Elden Ring rolls and bullet-hell bosses, structured like one Nightreign night. Static site, no backend.
 
-**Play:** https://dylanelu.github.io/dylan-game/
+**Play:** https://game.dylanlu.com/
 
 ![Gameplay: clearing a camp with shots, parries and rolls](docs/media/gameplay.webp)
 
@@ -50,7 +50,7 @@ npm run dev        # prints a Network URL you can open on your phone (same Wi-Fi
 npm run build      # static output in dist/
 ```
 
-Every push to `main` deploys to GitHub Pages (`.github/workflows/pages.yml`): https://dylanelu.github.io/dylan-game/
+Every push to `main` deploys to GitHub Pages (`.github/workflows/pages.yml`): https://game.dylanlu.com/
 
 ## Controls
 

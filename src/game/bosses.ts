@@ -10,7 +10,7 @@ import type { Game } from './game';
 const WHITE = '#ffffff', RED = '#ff3355';
 
 /** Shared base: posture, boss bar, reward; a simple attack scheduler; no phase-2 enrage. */
-abstract class AreaBoss extends Boss {
+export abstract class AreaBoss extends Boss {
   final = false;
   idleFor = 1;
   attackT = 0;

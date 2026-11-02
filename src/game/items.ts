@@ -20,6 +20,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   twin:     { name: 'TWIN FANGS', icon: 'weapon_duel_sword', shots: 1, spread: 0, parallel: 7, dmg: 6.5, interval: 0.14, speed: 460, pierce: 0, life: 0.8, big: false, color: '#c08aff', cost: 8 },
   scatter:  { name: 'SCATTERFANG', icon: 'weapon_saw_sword', shots: 3, spread: 0.2, parallel: 0, dmg: 6, interval: 0.2, speed: 400, pierce: 0, life: 0.55, big: false, color: '#ff8ad8', cost: 10 },
   monarch:  { name: "MONARCH'S EDGE", icon: 'weapon_anime_sword', shots: 1, spread: 0, parallel: 0, dmg: 20, interval: 0.3, speed: 380, pierce: 3, life: 1, big: true, color: '#e0c0ff', cost: 12 },
+  thunder:  { name: 'THUNDER SPEAR', icon: 'weapon_lavish_sword', shots: 1, spread: 0, parallel: 0, dmg: 30, interval: 0.6, speed: 380, pierce: 0, life: 0.9, big: true, color: '#ffd84a', cost: 20 },   // PLACEHOLDER
   needle:   { name: 'STORMNEEDLE', icon: 'weapon_katana', shots: 1, spread: 0, parallel: 0, dmg: 5.5, interval: 0.07, speed: 560, pierce: 0, life: 0.7, big: false, color: '#7ad8ff', cost: 4.5 },
 };
 
@@ -39,11 +40,18 @@ export interface ActiveDef { name: string; icon: 'IconSummon' | 'IconHook'; cost
 export const ACTIVES: Record<string, ActiveDef> = {
   summon:  { name: 'SHADOW SUMMON', icon: 'IconSummon', cost: 45, cooldown: 7, aimed: false, desc: 'RAISE TWO SHADOW SOLDIERS', color: '#b26bff' },
   grapple: { name: 'GRAPPLING HOOK', icon: 'IconHook', cost: 8, cooldown: 0.9, aimed: true, desc: 'ZIP TO WALLS, TREES, FOES', color: '#ffc83a' },
+  // PLACEHOLDERS until the weapons/abilities branch lands (merge: take theirs)
+  domain:   { name: 'DOMAIN EXPANSION', icon: 'IconSummon', cost: 60, cooldown: 30, aimed: false, desc: 'TBD', color: '#ff3355' },
+  ruler:    { name: "RULER'S AUTHORITY", icon: 'IconSummon', cost: 25, cooldown: 4, aimed: true, desc: 'TBD', color: '#7ad8ff' },
+  exchange: { name: 'SHADOW EXCHANGE', icon: 'IconSummon', cost: 20, cooldown: 5, aimed: true, desc: 'TBD', color: '#b26bff' },
+  stealth:  { name: 'STEALTH', icon: 'IconSummon', cost: 30, cooldown: 12, aimed: false, desc: 'TBD', color: '#8ae8ff' },
 };
 /** Relics: unique rewards from the named places' bosses. */
 export interface RelicDef { name: string; icon: 'IconMana'; desc: string; color: string }
 export const RELICS: Record<string, RelicDef> = {
   boundless: { name: 'BOUNDLESS', icon: 'IconMana', desc: 'UNLIMITED MANA', color: '#7ad8ff' },
+  beru:      { name: 'BERU', icon: 'IconMana', desc: 'TBD', color: '#a0ff4a' },
+  mikiri:    { name: 'MIKIRI COUNTER', icon: 'IconMana', desc: 'TBD', color: '#7ad8ff' },
 };
 
 export type Item =

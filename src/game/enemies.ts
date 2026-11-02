@@ -1,7 +1,8 @@
 import type { Anim } from './assets';
 import type { Game } from './game';
+import type { BossKind, MobKind } from './roster';
 
-export type EnemyKind = 'ghoul' | 'caster' | 'brute' | 'boss' | 'shadow' | 'titan' | 'atitan' | 'knight' | 'toji';
+export type EnemyKind = 'ghoul' | 'caster' | 'brute' | 'boss' | 'shadow' | 'titan' | 'atitan' | 'knight' | 'toji' | MobKind | BossKind;
 
 const WHITE = '#ffffff', RED = '#ff3355';
 

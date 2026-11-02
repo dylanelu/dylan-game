@@ -36,6 +36,8 @@ export class Input {
   /** set by the HUD: the full-map toggle area */
   mapAt: (x: number, y: number) => boolean = () => false;
   events: InputEvent[] = [];
+  /** a roll flick still in flight: its whole start→now swipe, so the roll can follow the thumb's arc */
+  rollSwipe: { dx: number; dy: number } | null = null;
   private keys = new Set<string>();
   private guns = new Map<number, GunTouch>();
   private mouseDown = false;
@@ -150,6 +152,8 @@ export class Input {
             g.rolled = true;
             this.events.push({ type: 'roll', dx, dy });
           }
+          // a thumb flick curves: its first 26px often point along an axis, not where the swipe ends up
+          if (g.rolled && now - g.t0 < FLICK_MS + 120) this.rollSwipe = { dx, dy };
         }
       } else {
         if (this.itemDrag && t.identifier === this.itemDrag.id) {
@@ -164,6 +168,7 @@ export class Input {
           this.events.push({ type: 'parry' });
         } else {
           this.guns.delete(t.identifier);
+          this.rollSwipe = null;
         }
       }
     }

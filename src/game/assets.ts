@@ -1,3 +1,5 @@
+import { CONTENT_SHEETS, type SpriteSpec } from './roster';
+
 // Loads the hero sprite and the 0x72 dungeon sheet (CC0) and pre-bakes the variants
 // the game needs: integer-scaled frames, white hit-flash frames, shadow-tinted frames.
 
@@ -16,6 +18,10 @@ export interface Assets {
   /** a row of equal frames from a Ninja Adventure sheet as an Anim */
   nAnim(sheet: NinjaSheet, x: number, y: number, w: number, h: number, frames: number, stepX: number, stepY: number, scale?: number): Anim;
   anim(name: string, scale?: number): Anim;
+  /** a roster sprite (src/game/roster.ts): a Ninja actor strip or a 0x72 anim */
+  spec(s: SpriteSpec): Anim;
+  /** a whole content sheet, night-graded (for odd parts like the dragon's body) */
+  sheet(path: string): Sprite;
 }
 
 export type NinjaSheet = 'TilesetFloor' | 'TilesetNature' | 'TilesetTowers' | 'TilesetWater' | 'NinjaDark' | 'RedSamuraiWalk' | 'RedSamuraiIdle'
@@ -153,6 +159,8 @@ export async function loadAssets(base = ''): Promise<Assets> {
     load(base + 'assets/hero.png'), load(base + SHEET), fetch(base + LIST).then((r) => r.text()),
     ...NINJA.map((n) => load(`${base}assets/vendor/ninja/${n}.png`)),
   ]);
+  const contentImgs = await Promise.all(CONTENT_SHEETS.map((p) => load(`${base}assets/vendor/ninja/actors/${p}`)));
+  const content = new Map(CONTENT_SHEETS.map((p, i) => [p, grade(contentImgs[i])]));
   const ninja = new Map<NinjaSheet, { raw: HTMLImageElement; graded: Sprite }>();
   NINJA.forEach((n, i) => ninja.set(n, { raw: ninjaImgs[i], graded: grade(ninjaImgs[i]) }));
   const ntCache = new Map<string, Sprite>();
@@ -206,7 +214,7 @@ export async function loadAssets(base = ''): Promise<Assets> {
     }
     return c;
   };
-  return {
+  const A: Assets = {
     heroes: HERO_LOOKS.map(heroSet),
     dagger: { img: dagger, flash: tinted(dagger, '#ffffff'), w: dagger.width, h: dagger.height },
     nt,
@@ -231,6 +239,23 @@ export async function loadAssets(base = ''): Promise<Assets> {
       }
       return t;
     },
+    spec(sp) {
+      if ('tile' in sp) return A.anim(sp.tile, sp.s);
+      const key = `${sp.p}:${sp.x0 ?? 0}:${sp.y0 ?? 0}:${sp.n}:${sp.s}`;
+      let a = nAnimCache.get(key);
+      if (!a) {
+        const src = content.get(sp.p)!, w = Math.round(sp.fw * sp.s), h = Math.round(sp.fh * sp.s);
+        const normal = Array.from({ length: sp.n }, (_, i) => {
+          const out = canvas(w, h);
+          out.ctx.drawImage(src, (sp.x0 ?? 0) + i * (sp.dx ?? sp.fw), (sp.y0 ?? 0) + i * (sp.dy ?? 0), sp.fw, sp.fh, 0, 0, w, h);
+          return out.c;
+        });
+        a = { normal, flash: normal.map((f) => tinted(f, '#ffffff')), shadow: normal.map((f) => tinted(f, '#2a1060', 0.9)), w, h };
+        nAnimCache.set(key, a);
+      }
+      return a;
+    },
+    sheet(path) { return content.get(path)!; },
     anim(name, scale = 2) {
       const key = `${name}@${scale}`;
       let a = animCache.get(key);
@@ -249,4 +274,5 @@ export async function loadAssets(base = ''): Promise<Assets> {
       return a;
     },
   };
+  return A;
 }
