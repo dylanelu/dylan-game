@@ -1,0 +1,41 @@
+# Shadow Gate
+
+A top-down pixel-art action game for phone and desktop: a Solo Leveling style hunter clearing a gate, with
+Sekiro parries, Elden Ring rolls and bullet-hell bosses. Static site, no backend.
+
+## Run
+
+```bash
+npm install
+npm run dev        # prints a Network URL you can open on your phone (same Wi-Fi)
+npm run build      # static output in dist/, deployable to GitHub Pages
+```
+
+## Controls
+
+| | Phone | Desktop |
+|---|---|---|
+| Move | drag anywhere on the left side | WASD |
+| Parry | release that thumb | right click (or K) |
+| Shoot | tap or hold anywhere else | left click toward the cursor |
+| Roll | flick with a second finger | Space / Shift |
+
+Perfect parry (first 0.15s): staggers normal enemies with a counter-strike, reflects bullets, refills mana and
+charges empowered shots. Enemies killed by a counter-strike rise as shadow soldiers. A white glint means
+parryable; a red glint means roll. Parrying the boss fills its posture bar; a full bar breaks it open.
+
+Sandbox: `1` ghouls, `2` casters, `3` brute, `4` boss, `5` wave, `0` clear, `G` god mode, `H` hitboxes.
+
+## Code map
+
+- `src/engine/renderer.ts`: low-res Canvas2D layers (scene, light, glow, ui) composited by a WebGL2 post shader
+  (banded lighting, bloom, chromatic aberration, flashes, vignette, grain)
+- `src/engine/input.ts`: touch gestures and mouse/keyboard, both mapped to the same actions
+- `src/engine/audio.ts`: all sound is synthesized with WebAudio
+- `src/game/game.ts`: loop, combat resolution (`hitPlayer`), juice (hitstop, shake, slow-mo), rendering
+- `src/game/player.ts`, `enemies.ts`, `boss.ts`, `level.ts`, `fx.ts`, `hud.ts`
+
+## Credits
+
+- Dungeon tiles and monsters: [0x72 DungeonTileset II](https://0x72.itch.io/dungeontileset-ii), CC0
+- Hero sprite: converted from Dylan's reference art (`tools/hero/`: `fit_grid.py` → `extract.py` → `face_fix.py`)

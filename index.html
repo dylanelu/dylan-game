@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#07060c" />
+  <title>Shadow Gate</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #07060c; overflow: hidden; overscroll-behavior: none; }
+    body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font: 12px/1.4 ui-monospace, Menlo, monospace; color: #cfc8e8; }
+    #screen { position: fixed; left: 0; top: 0; display: block; image-rendering: pixelated; cursor: crosshair; }
+    #panel { position: fixed; right: 8px; top: calc(8px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 300px; z-index: 2; }
+    #panel button { font: inherit; color: #e6dcff; background: #1a1430cc; border: 1px solid #4a3a7a; border-radius: 4px; padding: 5px 8px; cursor: pointer; }
+    #panel button:hover { background: #2a1f4acc; }
+    #panel button.on { background: #6b3fd6; border-color: #b26bff; }
+    #panel.collapsed button:not(#toggle) { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+  <div id="panel">
+    <button data-act="ghoul" title="1">Ghouls</button>
+    <button data-act="caster" title="2">Casters</button>
+    <button data-act="brute" title="3">Brute</button>
+    <button data-act="boss" title="4">Boss</button>
+    <button data-act="wave" title="5">Wave</button>
+    <button data-act="clear" title="0">Clear</button>
+    <button data-act="god" title="G">God</button>
+    <button data-act="hitbox" title="H">Hitbox</button>
+    <button id="toggle" data-act="toggle">Sandbox</button>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
