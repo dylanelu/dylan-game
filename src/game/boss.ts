@@ -15,6 +15,8 @@ export class Boss extends Enemy {
   name = 'THE CRIMSON WARDEN';
   /** the night's final boss (killing it clears the gate); area bosses set this false and carry a reward */
   final = true;
+  /** the storm closed all the way with this boss still standing: it hits harder and moves faster */
+  enraged = false;
   reward: import('./items').Item | null = null;
   posture = 0; maxPosture = 100; postureIdle = 0;
   phase = 1;
@@ -97,7 +99,7 @@ export class Boss extends Enemy {
   }
 
   onHurt(g: Game, amount: number) {
-    if (this.state !== 'stunned') this.addPosture(g, amount * 0.12);
+    if (this.state !== 'stunned') this.addPosture(g, amount * 0.16);
     if (this.phase === 1 && this.hp <= this.maxHp * 0.5) {
       this.phase = 2;
       this.setState('enrage');

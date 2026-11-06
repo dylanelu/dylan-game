@@ -140,15 +140,15 @@ export class Input {
         if (this.itemDrag && t.identifier === this.itemDrag.id) { this.itemDrag.x = p.x; this.itemDrag.y = p.y; continue; }
         if (this.joy && t.identifier === this.joy.id) {
           this.joy.x = p.x; this.joy.y = p.y;
-          const radius = 22; // native px for full speed
+          const radius = 22; // native px: how far the base trails the thumb
           let dx = (p.x - this.joy.ox) / radius, dy = (p.y - this.joy.oy) / radius;
           const l = Math.hypot(dx, dy);
           if (l > 1) {
-            dx /= l; dy /= l;
             // drag the base along so the stick never feels "stuck" at the rim
-            this.joy.ox = p.x - dx * radius; this.joy.oy = p.y - dy * radius;
+            this.joy.ox = p.x - (dx / l) * radius; this.joy.oy = p.y - (dy / l) * radius;
           }
-          this.move = l < 0.12 ? { x: 0, y: 0 } : { x: dx, y: dy };
+          // past a small dead zone you always run at full speed, like the keyboard: the stick only steers
+          this.move = l < 0.12 ? { x: 0, y: 0 } : { x: dx / l, y: dy / l };
         } else {
           const g = this.guns.get(t.identifier);
           if (!g) continue;

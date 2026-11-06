@@ -94,7 +94,21 @@ export class Audio {
 
   unlock() {
     this.init();
-    if (this.ctx!.state !== 'running') void this.ctx!.resume();
+    const ctx = this.ctx!;
+    if (ctx.state === 'running') return;
+    void ctx.resume();
+    // older iOS only really wakes up once a sound starts inside the gesture: a one-sample silent buffer does it
+    const src = ctx.createBufferSource(); src.buffer = ctx.createBuffer(1, 1, 22050); src.connect(ctx.destination); src.start(0);
+  }
+
+  /** Phones only let audio start inside a "real" gesture: a finger lifting (touchend / pointerup) or a click, never
+   *  a finger landing. So keep trying on every one of those until the context runs, and again whenever iOS
+   *  interrupts it (a call, Siri, another app's audio). */
+  armUnlock() {
+    // play through the ringer's silent switch like a game, not like a web page's beeps (Safari 17+)
+    try { const s = (navigator as unknown as { audioSession?: { type: string } }).audioSession; if (s) s.type = 'playback'; } catch { /* older browsers */ }
+    const kick = () => { if (!this.ctx || this.ctx.state !== 'running') this.unlock(); };
+    for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) addEventListener(ev, kick, { capture: true, passive: true });
   }
 
   private async load() {

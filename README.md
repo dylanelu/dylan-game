@@ -28,7 +28,7 @@ Hosting makes a lobby with a room code and an invite link. Make it **PUBLIC** an
 
 ## A night
 
-About 10 minutes on one big fixed outdoor map (240×240 tiles, the same layout every run), Fortnite-style named places:
+About 10 minutes on one big fixed outdoor map (336×336 tiles, the same layout every run), Fortnite-style named places:
 
 | Place | What's there | Beat its boss for |
 |---|---|---|
@@ -42,6 +42,7 @@ About 10 minutes on one big fixed outdoor map (240×240 tiles, the same layout e
 | **Jeju Island** | an ant nest across a causeway; the Ant King | **Beru** |
 | 8 lairs (Bamboo Grove, Cursed Shrine, Watcher's Hill, Sunken Ruins, Bone Pit, Old Mill, Moonwell, Hollow Stump) | each rolls tonight's boss from a pool of 8 | good loot; sometimes **Ruler's Authority** or **Shadow Exchange** |
 | Shadow Woods, Mirror Lake, Ruined Village, the fields | camps, chests, roads | gear and flasks |
+| **The Outlands** | a wide ring of open country around everything above: small camps, Mt. Fujikasane, Mt. Sagiri, Swordsmith Village, Kyoto School, Trost District, the Mugen Train wreck, ponds, rock piles, ruins, and two far lairs (Demon Castle, Frozen Spire) | gear and flasks |
 
 24 bosses in all: the 3 finals (the Crimson Warden, **Sukuna**, or **Antares** the dragon; one rises each night), the
 8 named-place bosses, and 13 lair bosses (Giant Frog, King Slime, Demon Cyclops, Storm Tengu, Tanuki, Golden Tanuki,
@@ -51,12 +52,15 @@ ant larvae (burrow under you), vipers (lunge), sporemaws (spore rings), cursed l
 (sighted bolt), frost bears (charge; walls stun them), kappa (shell blocks shots from the front) and phantoms
 (reappear behind you). Every place has its own mix.
 
-1. Drop in somewhere on the rim.
+1. Drop in somewhere on the outer rim, out in the Outlands.
 2. Clear camps and the named places to level up and find gear. Cleared camps leave a chest. Loot is sparse and
    stands in a beam of its rarity color. Area bosses guard their ground and walk home if you run.
    In co-op, a boss's unique reward goes to every player, wherever they are.
-3. The shadow storm closes in stages toward Arise Arena; standing in it hurts more as the night goes on.
-4. At 9:00 the gate opens: anyone outside is pulled in and tonight's final boss rises. Kill it to clear the night.
+   Small packs roam the open ground between places, more and tougher as the night goes on.
+3. The shadow storm closes in stages, each circle drifting toward tonight's gate: a random spot, different every
+   night (the dashed circle on the map is the next one). Standing in it hurts more as the night goes on.
+4. At 9:00 the gate opens: anyone outside is pulled in and tonight's final boss rises there. Kill it to clear the
+   night. Once the circle has closed all the way (10:00), the boss goes berserk: harder hits, faster attacks.
 
 Enemy levels are hidden. The marker over an enemy says how bad it is for you: white is a fair fight, red is well
 above you, a purple skull means you will die. Solo gets one revival per night; in co-op you come back beside a teammate. Refreshing the page resumes the night

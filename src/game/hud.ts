@@ -288,11 +288,16 @@ function drawMap(g: Game, ctx: CanvasRenderingContext2D, mx: number, my: number,
   ctx.beginPath(); ctx.rect(mx, my, M, M); ctx.arc(cxm, cym, n.stormR * sc, 0, Math.PI * 2, true); ctx.fill('evenodd');
   ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(cxm, cym, n.stormR * sc, 0, Math.PI * 2); ctx.stroke();
-  if (n.nextR < n.stormR - 1) { ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(cxm, cym, n.nextR * sc, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+  const nx = n.next;   // the next circle, often off-center: the storm drifts toward tonight's gate
+  if (nx.r < n.stormR - 1) { ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(mx + nx.x * sc, my + nx.y * sc, nx.r * sc, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
   for (const r of g.level.rooms) {
     if (r.kind === 'miniboss' && n.activeMb.has(r.id)) { ctx.fillStyle = '#ff3355'; ctx.fillRect(Math.round(mx + r.cx * sc) - 1, Math.round(my + r.cy * sc) - 1, 3, 3); }
   }
-  if (g.mode !== 'br') { ctx.fillStyle = n.bossSpawned ? '#ff3355' : '#ffd84a'; ctx.fillRect(Math.round(cxm) - 2, Math.round(cym) - 2, 4, 4); }
+  // the gate shows up once it stirs, half a minute before it opens
+  if (g.mode !== 'br' && (n.bossSpawned || n.t >= BOSS_AT - 30)) {
+    const gt = n.gate;
+    ctx.fillStyle = n.bossSpawned ? '#ff3355' : '#ffd84a'; ctx.fillRect(Math.round(mx + gt.x * sc) - 2, Math.round(my + gt.y * sc) - 2, 4, 4);
+  }
   for (const c of n.chests) if (!c.opened) { ctx.fillStyle = '#ffc83a'; ctx.fillRect(Math.round(mx + c.x * sc), Math.round(my + c.y * sc), 1, 1); }
   // teammates in their color (enemy players stay off your map), you in white on top
   for (const pl of g.remotes.values()) {

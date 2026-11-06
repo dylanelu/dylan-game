@@ -10,9 +10,12 @@ import type { Assets, NinjaSheet, Sprite } from './assets';
 //   TOJI TOWERS     fortress compound, Toji waits in the inner keep (→ unlimited mana)
 //   TITAN WALLS     ring-walled district full of titans, the Armored Titan at its heart (→ grappling hook)
 //   SHADOW WOODS, MIRROR LAKE, RUINED VILLAGE   wilder ground with camps
+//   THE OUTLANDS    a wide ring of open country around all of it: small camps, hamlets, rock piles, ponds, ruins
+//                   and two far-flung lairs. You drop in out here, so there's a run before the first big fight.
 
 export const TILE = 32;
-const N = 240;                               // map is N×N tiles
+const OFF = 48;                              // the outlands ring: the original 240×240 map sits OFF tiles in
+const N = 240 + OFF * 2;                     // map is N×N tiles
 const CHUNK = 16;                            // tiles per chunk side (512px)
 
 export enum T { VOID, GRASS, FOREST, DIRT, SAND, STONE, DUNGEON, WALL, WATER, SNOW, BLOSSOM, MUD }
@@ -95,14 +98,18 @@ export class World {
   constructor(private A: Assets, seed = 0x5ad0) {
     const rand = rng(seed);
     const t = this.terrain;
-    const set = (x: number, y: number, v: T) => { if (x >= 0 && y >= 0 && x < N && y < N) t[y * N + x] = v; };
-    const get = (x: number, y: number) => (x >= 0 && y >= 0 && x < N && y < N ? t[y * N + x] : T.VOID);
+    // the original places are written in their own 240-tile coordinates, shifted by O into the middle of the
+    // bigger map; O drops to 0 for the outlands and everything after
+    let O = OFF;
+    const set = (x: number, y: number, v: T) => { x += O; y += O; if (x >= 0 && y >= 0 && x < N && y < N) t[y * N + x] = v; };
+    const get = (x: number, y: number) => { x += O; y += O; return x >= 0 && y >= 0 && x < N && y < N ? t[y * N + x] : T.VOID; };
     const rect = (x0: number, y0: number, x1: number, y1: number, v: T) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) set(x, y, v); };
     const ring = (x0: number, y0: number, x1: number, y1: number, v: T, th = 1) => {
       rect(x0, y0, x1, y0 + th, v); rect(x0, y1 - th, x1, y1, v); rect(x0, y0, x0 + th, y1, v); rect(x1 - th, y0, x1, y1, v);
     };
-    const poi = (name: string, x0: number, y0: number, x1: number, y1: number, color: string, indoor = false) => { this.pois.push({ name, x0, y0, x1, y1, color, indoor }); };
+    const poi = (name: string, x0: number, y0: number, x1: number, y1: number, color: string, indoor = false) => { this.pois.push({ name, x0: x0 + O, y0: y0 + O, x1: x1 + O, y1: y1 + O, color, indoor }); };
     const room = (kind: RoomKind, x0: number, y0: number, x1: number, y1: number, level: number, poiName: string, extra: Partial<Room> = {}) => {
+      x0 += O; y0 += O; x1 += O; y1 += O;
       const r: Room = { id: this.rooms.length, kind, x0, y0, x1, y1, cx: ((x0 + x1) / 2) * TILE, cy: ((y0 + y1) / 2) * TILE, ring: 2, level, poi: poiName, ...extra };
       this.rooms.push(r);
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (x >= 0 && y >= 0 && x < N && y < N) this.roomAt[y * N + x] = r.id;
@@ -125,7 +132,7 @@ export class World {
       poi(name, cx - 7, cy - 6, cx + 7, cy + 6, '#ff8a6a');
       room('miniboss', cx - 5, cy - 4, cx + 5, cy + 4, 8, name, { pool });
       // a ring of standing stones marks a lair from afar
-      for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.3; lairStones.push([Math.round(cx + Math.cos(a) * 7), Math.round(cy + Math.sin(a) * 6)]); }
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.3; lairStones.push([Math.round(cx + Math.cos(a) * 7) + O, Math.round(cy + Math.sin(a) * 6) + O]); }
     };
     const lairStones: [number, number][] = [];
 
@@ -296,6 +303,74 @@ export class World {
     road(44, 60, 26, 86);                                              // → moonwell
     road(106, 44, 118, 66);                                            // → hollow stump
 
+    // ------------------------------------------------------------ THE OUTLANDS: the ring around the old map
+    // Mostly open country, so getting anywhere is a run: a few small named spots, scattered little camps,
+    // rock piles, ponds and ruins, and two lairs far out in the corners. From here on, coordinates are the big map's.
+    O = 0;
+    const orand = rng(seed ^ 0x0b7a);
+    const inner = (x: number, y: number, pad: number) => x > OFF - pad && y > OFF - pad && x < N - OFF + pad && y < N - OFF + pad;
+    const taken: [number, number, number][] = [];
+    const claim = (x: number, y: number, r: number) => { taken.push([x, y, r]); };
+    const free = (x: number, y: number, r: number) => !inner(x, y, r + 3) && x > r + 4 && y > r + 4 && x < N - r - 5 && y < N - r - 5
+      && taken.every(([a, b, rr]) => Math.hypot(a - x, b - y) > r + rr + 5);
+    const spot = (r: number): [number, number] | null => {
+      for (let i = 0; i < 600; i++) { const x = 4 + Math.floor(orand() * (N - 8)), y = 4 + Math.floor(orand() * (N - 8)); if (free(x, y, r)) { claim(x, y, r); return [x, y]; } }
+      return null;
+    };
+    // a road from an outland spot in toward the old map's edge
+    const roadIn = (x: number, y: number) => {
+      const tx = Math.min(N - OFF + 2, Math.max(OFF - 2, x)), ty = Math.min(N - OFF + 2, Math.max(OFF - 2, y));
+      if (Math.abs(tx - x) > Math.abs(ty - y)) { road(x, y, tx, y); road(tx, y, tx, ty); } else { road(x, y, x, ty); road(x, ty, tx, ty); }
+    };
+    const hut = (x: number, y: number) => { rect(x, y, x + 3, y + 2, T.WALL); };
+    // small named spots, one per side and two corners
+    const hamlet = (name: string, cx: number, cy: number, ground: T, color: string, huts: number, level: number) => {
+      claim(cx, cy, 11);
+      blob(cx, cy, 10, 8, ground, 0.35);
+      poi(name, cx - 10, cy - 8, cx + 10, cy + 8, color);
+      for (let i = 0; i < huts; i++) {
+        const a = (i / huts) * Math.PI * 2 + orand(), d = 5 + orand() * 2;
+        hut(Math.round(cx + Math.cos(a) * d) - 1, Math.round(cy + Math.sin(a) * d * 0.8) - 1);
+      }
+      room('camp', cx - 3, cy - 2, cx + 3, cy + 3, level, name);
+      roadIn(cx, cy);
+    };
+    hamlet('MT. FUJIKASANE', 168, 20, T.BLOSSOM, '#e8a0ff', 3, 2);          // the wisteria hill, north
+    hamlet('MT. SAGIRI', 20, 150, T.FOREST, '#a0d8b0', 2, 2);               // the misty training mountain, west
+    hamlet('TROST DISTRICT', 150, 316, T.DIRT, '#ffc88a', 6, 3);            // a walled town's last street, south
+    hamlet('SWORDSMITH VILLAGE', 314, 30, T.DIRT, '#ff9a6a', 5, 3);         // hot springs in the north-east corner
+    blob(318, 24, 3, 2, T.WATER, 0.2); blob(308, 36, 2, 2, T.WATER, 0.2);
+    hamlet('KYOTO SCHOOL', 26, 310, T.STONE, '#7ad8ff', 4, 3);              // a courtyard in the south-west corner
+    // the Mugen Train: a long wreck down the east side
+    claim(316, 190, 16);
+    poi('MUGEN TRAIN', 306, 140, 326, 250, '#ff6a4a');
+    for (let y = 140; y < 250; y++) { set(314, y, T.STONE); set(315, y, T.STONE); }
+    for (let y = 146; y < 244; y += 12) rect(317, y, 320, y + 8, T.WALL);    // carriages, every one off the rails
+    room('camp', 308, 158, 314, 165, 3, 'MUGEN TRAIN');
+    room('camp', 308, 214, 314, 221, 4, 'MUGEN TRAIN');
+    roadIn(310, 190);
+    // two lairs far out: the longest walks on the map
+    claim(22, 22, 12); lair('DEMON CASTLE', 22, 22, 'ruin');
+    claim(314, 314, 12); lair('FROZEN SPIRE', 314, 314, 'water');
+    roadIn(22, 22); roadIn(314, 314);
+    // scattered small camps: two to four enemies each, a chest when cleared
+    for (let i = 0; i < 18; i++) {
+      const at = spot(5); if (!at) break;
+      const [x, y] = at;
+      blob(x, y, 4, 3, orand() < 0.5 ? T.DIRT : T.MUD, 0.4, [T.GRASS, T.FOREST]);
+      room('camp', x - 2, y - 2, x + 3, y + 2, 1 + Math.floor(orand() * 3), 'THE OUTLANDS');
+    }
+    // ponds, rock piles and old ruins to break up the open ground
+    const outProps: [number, number, 'rocks' | 'ruin'][] = [];
+    for (let i = 0; i < 12; i++) { const at = spot(4); if (at) blob(at[0], at[1], 3 + orand() * 3, 2 + orand() * 2, T.WATER, 0.3, [T.GRASS, T.FOREST]); }
+    for (let i = 0; i < 16; i++) { const at = spot(3); if (at) outProps.push([at[0], at[1], 'rocks']); }
+    for (let i = 0; i < 10; i++) {
+      const at = spot(4); if (!at) continue;
+      blob(at[0], at[1], 4, 3, T.STONE, 0.5, [T.GRASS, T.FOREST]);
+      outProps.push([at[0], at[1], 'ruin']);
+      if (orand() < 0.5) hut(at[0] - 1, at[1] - 1);
+    }
+
     // ------------------------------------------------------------ props
     const W = (x: number, y: number) => WALKABLE[get(x, y)];
     const clearOf = (x: number, y: number, pad: number) => {
@@ -308,7 +383,7 @@ export class World {
     };
     for (let y = 4; y < N - 4; y += 2) for (let x = 4; x < N - 4; x += 2) {
       const v = get(x, y), r = hash(x * 3, y * 7);
-      const inWoods = x >= 44 && x < 92 && y > 58 && y < 112, giants = x < 46 && y > 118 && y < 206;
+      const here = this.poiAt(x * TILE, y * TILE)?.name, inWoods = here === 'SHADOW WOODS', giants = here === 'FOREST OF GIANT TREES';
       const density = v === T.FOREST ? (inWoods ? 0.55 : giants ? 0.2 : 0.32) : v === T.GRASS ? (giants ? 0.1 : 0.07) : v === T.SNOW ? 0.05 : v === T.BLOSSOM ? 0.06 : 0;
       if (giants && r < density && clearOf(x, y, 3)) {
         // the Forest of Giant Trees: trunks four times a person's height, made for grappling
@@ -329,29 +404,39 @@ export class World {
         this.decor.push({ x: x * TILE + Math.floor(hash(x, y + 1) * 16), y: y * TILE + Math.floor(hash(x + 2, y) * 16), sx: d[0], sy: d[1] });
       }
     }
-    // towers along the Toji compound walls and the gate
-    for (const [tx, ty] of [[143, 50], [178, 50], [143, 81], [178, 81], [152, 86], [169, 86], [155, 66], [166, 66], [93, 12], [119, 12], [93, 38], [119, 38], [102, 40], [111, 40]]) {
+    // rock piles and ruined pillars out in the outlands
+    for (const [x, y, k] of outProps) {
+      for (let i = 0; i < (k === 'rocks' ? 3 : 5); i++) {
+        const a = hash(x + i, y) * Math.PI * 2, d = k === 'rocks' ? 1 + hash(x, y + i) * 2 : 3;
+        const px = Math.round(x + Math.cos(a) * d), py = Math.round(y + Math.sin(a) * d);
+        if (!W(px, py) || this.roomAt[py * N + px] >= 0) continue;
+        if (k === 'rocks') { const s = ROCKS[Math.floor(hash(px, py) * ROCKS.length)]; this.addProp({ x: px * TILE + 16, y: py * TILE + 24, r: 22, sheet: 'TilesetNature', sx: s[0], sy: s[1], sw: s[2], sh: s[3] }); }
+        else this.addProp({ x: px * TILE + 16, y: py * TILE + 28, r: 12 });
+      }
+    }
+    // towers along the Toji compound walls and the gate (original-map coordinates, shifted in)
+    for (const [tx, ty] of ([[143, 50], [178, 50], [143, 81], [178, 81], [152, 86], [169, 86], [155, 66], [166, 66], [93, 12], [119, 12], [93, 38], [119, 38], [102, 40], [111, 40]] as [number, number][]).map(([x, y]) => [x + OFF, y + OFF])) {
       const s = TOWERS[Math.floor(hash(tx, ty) * TOWERS.length)];
       this.addProp({ x: tx * TILE + 16, y: ty * TILE + 28, r: 14, sheet: 'TilesetTowers', sx: s[0], sy: s[1], sw: 32, sh: 32 });
       this.lights.push({ x: tx * TILE + 16, y: ty * TILE, color: '#ff9a3c', radius: 110, flicker: 0.3 });
     }
     // pillars inside Arise Arena (0x72 columns, drawn by drawColumn)
-    for (const [tx, ty] of [[112, 116], [127, 116], [112, 126], [127, 126], [114, 105], [125, 105], [24, 25], [39, 25], [24, 34], [39, 34], ...lairStones]) this.addProp({ x: tx * TILE + 16, y: ty * TILE + 28, r: 12 });
+    for (const [tx, ty] of [...([[112, 116], [127, 116], [112, 126], [127, 126], [114, 105], [125, 105], [24, 25], [39, 25], [24, 34], [39, 34]] as [number, number][]).map(([x, y]) => [x + OFF, y + OFF]), ...lairStones]) this.addProp({ x: tx * TILE + 16, y: ty * TILE + 28, r: 12 });
     // ice pillars ring the Red Gate's arena
-    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; this.addProp({ x: Math.round(213 + Math.cos(a) * 10) * TILE + 16, y: Math.round(30 + Math.sin(a) * 9) * TILE + 28, r: 12 }); }
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; this.addProp({ x: (Math.round(213 + Math.cos(a) * 10) + OFF) * TILE + 16, y: (Math.round(30 + Math.sin(a) * 9) + OFF) * TILE + 28, r: 12 }); }
     // ruined pillars in Titan Walls and the village
     for (let i = 0; i < 26; i++) {
       const a = rand() * Math.PI * 2, d = 5 + rand() * (TR - 7);
-      const x = Math.round(TX + Math.cos(a) * d), y = Math.round(TY + Math.sin(a) * d);
+      const x = Math.round(TX + Math.cos(a) * d) + OFF, y = Math.round(TY + Math.sin(a) * d) + OFF;
       if (this.roomAt[y * N + x] < 0 && W(x, y)) this.addProp({ x: x * TILE + 16, y: y * TILE + 28, r: 12 });
     }
     for (let i = 0; i < 16; i++) {
-      const x = 146 + Math.floor(rand() * 42), y = 156 + Math.floor(rand() * 32);
+      const x = 146 + Math.floor(rand() * 42) + OFF, y = 156 + Math.floor(rand() * 32) + OFF;
       if (this.roomAt[y * N + x] < 0 && W(x, y)) this.addProp({ x: x * TILE + 16, y: y * TILE + 28, r: 14, sheet: 'TilesetTowers', sx: 224, sy: 64, sw: 32, sh: 32 });
     }
 
     // fountains + braziers in the dungeon, campfire glow at outdoor camps
-    for (const [fx, fy, c] of [[119, 113, 'red'], [119, 102, 'red'], [104, 115, 'blue'], [134, 115, 'blue'], [31, 22, 'blue']] as [number, number, 'red' | 'blue'][]) {
+    for (const [fx, fy, c] of ([[119, 113, 'red'], [119, 102, 'red'], [104, 115, 'blue'], [134, 115, 'blue'], [31, 22, 'blue']] as [number, number, 'red' | 'blue'][]).map(([x, y, c]) => [x + OFF, y + OFF, c] as const)) {
       if (get(fx, fy) === T.WALL && get(fx + 1, fy) === T.WALL) {
         this.fountains.push({ x: fx * TILE, y: fy * TILE, color: c });
         this.lights.push({ x: fx * TILE + 16, y: (fy + 1) * TILE + 8, color: c === 'blue' ? '#4a6cff' : '#ff3a3a', radius: 120, flicker: 0.12 });
@@ -369,10 +454,14 @@ export class World {
       }
     }
 
-    // drop points around the rim, on open grass
-    for (const [x, y] of [[72, 8], [136, 10], [186, 30], [232, 74], [232, 120], [230, 176], [178, 232], [120, 232], [62, 232], [8, 110], [8, 60], [50, 140], [96, 186], [196, 100]]) {
+    // drop points around the outer rim, on open grass: everyone starts out in the outlands
+    for (let k = 0; k < 20; k++) {
+      // walk a square 10 tiles in from the edge
+      const u = k / 20 * 4, side = Math.floor(u), f = u - side, m = 10, L = N - 2 * m;
+      const x = Math.round(side === 0 ? m + f * L : side === 1 ? N - m : side === 2 ? N - m - f * L : m);
+      const y = Math.round(side === 0 ? m : side === 1 ? m + f * L : side === 2 ? N - m : N - m - f * L);
       let px = x, py = y;
-      for (let k = 0; k < 40 && !(W(px, py) && this.roomAt[py * N + px] < 0); k++) { px = x + Math.round((rand() - 0.5) * 10); py = y + Math.round((rand() - 0.5) * 10); }
+      for (let q = 0; q < 40 && !(W(px, py) && this.roomAt[py * N + px] < 0); q++) { px = x + Math.round((rand() - 0.5) * 10); py = y + Math.round((rand() - 0.5) * 10); }
       this.spawns.push({ x: px * TILE + 16, y: py * TILE + 16 });
     }
 

@@ -12,7 +12,7 @@ const input = new Input(canvas, renderer);
 const audio = new Audio();
 audio.init();
 if (new URLSearchParams(location.search).has('mute')) audio.muted = true;   // ?mute: silent dev / test sessions   // start decoding clips right away; the first gesture resumes playback
-input.onFirstGesture(() => audio.unlock());
+audio.armUnlock();
 
 const assets = await loadAssets();
 const game = new Game(renderer, input, audio, assets);

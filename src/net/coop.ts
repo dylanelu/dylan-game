@@ -145,7 +145,7 @@ export class Coop {
       if (this.snapT <= 0) {
         this.snapT = 1 / 15;
         this.net.sendSnap({
-          n: { t: r1(g.night.t), mb: [...g.night.activeMb], bs: g.night.bossSpawned ? 1 : 0 },
+          n: { t: r1(g.night.t), mb: [...g.night.activeMb], bs: g.night.bossSpawned ? 1 : 0, sd: g.night.seed },
           e: g.enemies.filter((e) => !e.dead).map((e) => ({
             i: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), f: e.face, s: e.state, st: r1(e.stateT),
             h: Math.round(e.hp), m: e.maxHp, fl: e.flash > 0 ? 1 : 0, a: e.shadowAnim, ...(e.kind === 'shadow' ? { o: (e as Shadow).owner } : {}),
@@ -210,6 +210,7 @@ export class Coop {
       n.t = Math.abs(n.t - s.n.t) > 1 ? s.n.t : n.t + (s.n.t - n.t) * 0.2;   // follow the host's clock
       n.activeMb = new Set(s.n.mb);
       n.bossSpawned = !!s.n.bs;
+      if (s.n.sd !== undefined && s.n.sd !== n.seed) n.setSeed(s.n.sd);   // the host's storm path
     }
     for (const w of s.e) {
       seen.add(w.i);

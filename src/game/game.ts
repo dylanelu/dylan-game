@@ -476,10 +476,11 @@ export class Game {
   /** The gate opened: anyone outside the final circle is pulled in through the shadows. */
   gatePull() {
     const p = this.player, n = this.night;
-    if (p.state === 'dead' || Math.hypot(p.x - n.cx, p.y - n.cy) < n.stormAt(n.t + 60) - 40) return;
+    const gate = n.gate;
+    if (p.state === 'dead' || Math.hypot(p.x - gate.x, p.y - gate.y) < n.stormAt(n.t + 60) - 40) return;
     this.fx.dissolve(p.sprite?.img ?? this.A.heroes[p.slot].idle.normal[0], p.x, p.y, p.sprite?.ax ?? 16, p.sprite?.ay ?? 56, p.face < 0, { every: 2 });
     const a = Math.random() * Math.PI * 2;
-    p.x = n.cx + Math.cos(a) * 140; p.y = n.cy + 80 + Math.sin(a) * 60;
+    p.x = gate.x + Math.cos(a) * 140; p.y = gate.y + 80 + Math.sin(a) * 60;
     this.level.collide(p, p.r);
     this.cam.x = p.x - this.r.w / 2; this.cam.y = p.y - this.r.h / 2;
     this.fx.burst(p.x, p.y, 30, { speed: 40, colors: ['#5a2ccf', '#b26bff'], glow: true, grav: -120, vz: 80, life: 1, size: 2 });
@@ -493,7 +494,7 @@ export class Game {
     while (p.xp >= xpToNext(p.level)) {
       p.xp -= xpToNext(p.level);
       p.level++;
-      p.maxHp += 12; p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.4));
+      p.maxHp += 15; p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
       this.banner(`LEVEL ${p.level}`, '#ffd84a', 1.6);
       this.audio.jingle('levelUp', 0.7); this.flash('#ffd84a', 0.15);
       this.fx.ring(p.x, p.y, 50, '#ffd84a', 0.6, 3);
@@ -854,7 +855,8 @@ export class Game {
 
     // the host's AI cues (glints, telegraphs, roars, shakes) are mirrored to everyone else
     if (this.coop?.isHost) { this.mirroring = true; this.fx.emit = (op, args) => this.coop!.mirror(op, args); }
-    for (const e of this.enemies) e.update(this, sdt * this.wx.timeFor(e));   // a domain all but stops them
+    // a domain all but stops them; an enraged final boss runs 30% fast
+    for (const e of this.enemies) e.update(this, sdt * this.wx.timeFor(e) * (e instanceof Boss && e.enraged ? 1.3 : 1));
     this.night.update(sdt);
     this.mirroring = false; this.fx.emit = null;
     this.toastT += dt;

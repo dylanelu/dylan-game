@@ -1,3 +1,4 @@
+import { Boss } from './boss';
 import type { EnemyKind } from './enemies';
 import type { Game } from './game';
 import { itemName, RARITY, rollLoot, type Item } from './items';
@@ -6,14 +7,15 @@ import { FINALS, LAIR_POOLS } from './roster';
 import { TILE, type Room } from './world';
 
 // One night, ~10 minutes. Drop in, clear camps and mini-bosses to level up and find gear while the shadow
-// storm closes in on the gate at the center. At 9:00 the gate opens and the final boss rises there.
+// storm closes in, each circle drifting toward tonight's gate: a random spot, different every night. At 9:00 the
+// gate opens and the final boss rises there; once the circle has closed all the way, it grows far stronger.
 
 export const NIGHT_LENGTH = 600;
 export const BOSS_AT = 540;
 /** [time (s), storm radius (px)]: holds, then shrinks; interpolated between keys */
-const STORM_PVE: [number, number][] = [[0, 5600], [120, 5600], [180, 3600], [290, 3600], [350, 2100], [440, 2100], [500, 900], [BOSS_AT, 900], [NIGHT_LENGTH, 420]];
+const STORM_PVE: [number, number][] = [[0, 7800], [120, 7800], [180, 4600], [290, 4600], [350, 2600], [440, 2600], [500, 1100], [BOSS_AT, 1100], [NIGHT_LENGTH, 450]];
 /** Battle royale: no gate; the circle keeps closing to nothing, so a match always ends */
-const STORM_BR: [number, number][] = [[0, 5600], [90, 5600], [150, 3900], [230, 3900], [290, 2400], [370, 2400], [430, 1350], [500, 1350], [550, 630], [600, 630], [660, 0]];
+const STORM_BR: [number, number][] = [[0, 7800], [90, 7800], [150, 5000], [230, 5000], [290, 3000], [370, 3000], [430, 1600], [500, 1600], [550, 700], [600, 700], [660, 0]];
 
 interface Camp { room: Room; state: 'dormant' | 'active' | 'cleared'; ids: number[]; boss?: EnemyKind }
 
@@ -32,6 +34,13 @@ const MOBS_AT: Record<string, EnemyKind[]> = {
   'FOREST OF GIANT TREES': ['spider', 'viper', 'spore', 'lantern'],
   'JEJU ISLAND': ['larva', 'spider', 'flyhead', 'larva'],
   'THE FIELDS': ['ghoul', 'slime', 'flyhead', 'caster', 'viper', 'skull'],
+  'THE OUTLANDS': ['slime', 'flyhead', 'ghoul', 'viper', 'spore'],
+  'MT. FUJIKASANE': ['ghoul', 'phantom', 'flyhead'],
+  'MT. SAGIRI': ['viper', 'spider', 'ghoul'],
+  'TROST DISTRICT': ['ghoul', 'brute', 'skull'],
+  'SWORDSMITH VILLAGE': ['kappa', 'ghoul', 'lantern'],
+  'KYOTO SCHOOL': ['caster', 'phantom', 'ghoul'],
+  'MUGEN TRAIN': ['ghoul', 'flyhead', 'skull', 'caster'],
 };
 const NAMED_BOSS: Record<string, EnemyKind> = { shadowKnight: 'knight', toji: 'toji', armoredTitan: 'atitan', patchwork: 'patchwork', antking: 'antking', baruka: 'baruka', genichiro: 'genichiro', femaletitan: 'femaletitan' };
 export interface Chest { id: number; x: number; y: number; opened: boolean; t: number }
@@ -55,8 +64,20 @@ export class Night {
   revives = 1;
   private said = new Set<string>();
   private stormTick = 0;
+  /** wandering packs out between the camps (host / solo): their ids, and the time to the next check */
+  private roamers = new Set<number>();
+  private roamT = 8;
+
+  /** Tonight's seed: picks the lair bosses and the storm's path. Co-op clients take the host's. */
+  seed: number;
+  /** Where each storm key's circle is centered (same length as the storm table). */
+  private centers: { x: number; y: number }[] = [];
+  private centersOf: unknown = null;   // the storm table they were laid out for (the mode can change after we're made)
+  /** The final boss has gone berserk: the circle closed all the way. */
+  enraged = false;
 
   constructor(private g: Game, seed = Math.floor(Math.random() * 1e9)) {
+    this.seed = seed;
     const w = g.level, rand = rng(seed);
     // drop rooms stay quiet so nobody lands in a fight
     for (const r of w.rooms) if (r.kind === 'camp') this.camps.set(r.id, { room: r, state: 'dormant', ids: [] });
@@ -73,28 +94,80 @@ export class Night {
   /** tonight's final boss */
   finalBoss: EnemyKind = 'boss';
 
-  get cx() { return this.g.level.arena.cx; }
-  get cy() { return this.g.level.arena.cy; }
+  private get table() { return this.g.mode === 'br' ? STORM_BR : STORM_PVE; }
 
-  stormAt(t: number) {
-    const STORM = this.g.mode === 'br' ? STORM_BR : STORM_PVE;
-    for (let i = 1; i < STORM.length; i++) {
-      const [t1, r1] = STORM[i], [t0, r0] = STORM[i - 1];
-      if (t <= t1) return r0 + (r1 - r0) * Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
+  /** Lay out the storm's path from the seed: pick the gate (open ground, not too near the edge), then let each
+   *  circle drift toward it, never poking outside the circle before it. Every machine with the seed agrees. */
+  setSeed(seed: number) {
+    this.seed = seed;
+    const w = this.g.level, rand = rng(seed ^ 0x5707), keys = this.table;
+    this.centersOf = keys;
+    const c0 = { x: w.width / 2, y: w.height / 2 };
+    // how far the circles can carry the center, in total
+    let reach = 0;
+    for (let i = 1; i < keys.length; i++) reach += Math.max(0, keys[i - 1][1] - keys[i][1]) * 0.9;
+    const open = (x: number, y: number) => {
+      if (w.solidAt(x, y) || w.roomOf(x, y)) return false;
+      let ok = 0;
+      for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; if (!w.solidAt(x + Math.cos(a) * 220, y + Math.sin(a) * 220)) ok++; }
+      return ok >= 13;
+    };
+    let gate = { x: w.arena.cx, y: w.arena.cy - 60 };
+    for (let i = 0; i < 400; i++) {
+      const x = 700 + rand() * (w.width - 1400), y = 700 + rand() * (w.height - 1400);
+      if (Math.hypot(x - c0.x, y - c0.y) < reach && open(x, y)) { gate = { x, y }; break; }
     }
-    return STORM[STORM.length - 1][1];
+    this.centers = [];
+    let c = c0;
+    for (let i = 0; i < keys.length; i++) {
+      const shrink = i > 0 ? Math.max(0, keys[i - 1][1] - keys[i][1]) : 0;
+      if (shrink > 0) {
+        // step toward the gate as far as this shrink allows, wandering a little sideways when there's slack
+        const dx = gate.x - c.x, dy = gate.y - c.y, d = Math.hypot(dx, dy), step = Math.min(d, shrink * 0.9);
+        const slack = shrink * 0.9 - step, side = (rand() - 0.5) * slack * (keys[i][1] > 0 ? 0.8 : 0);
+        c = d > 0 ? { x: c.x + (dx / d) * step - (dy / d) * side, y: c.y + (dy / d) * step + (dx / d) * side } : { ...c };
+      }
+      this.centers.push(c);
+    }
+    // the last circle lands exactly on the gate
+    this.centers[this.centers.length - 1] = gate;
+    for (let i = this.centers.length - 2; i >= 0 && keys[i + 1][1] >= keys[i][1]; i--) this.centers[i] = gate;
   }
+  /** Where the final boss rises and the storm ends. */
+  get gate() { if (this.centersOf !== this.table) this.setSeed(this.seed); return this.centers[this.centers.length - 1]; }
+
+  private lerpAt(t: number) {
+    const keys = this.table;
+    if (this.centersOf !== keys) this.setSeed(this.seed);
+    for (let i = 1; i < keys.length; i++) {
+      if (t <= keys[i][0]) {
+        const k = Math.min(1, Math.max(0, (t - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]))), a = this.centers[i - 1], b = this.centers[i];
+        return { r: keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * k, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+      }
+    }
+    const l = this.centers[this.centers.length - 1];
+    return { r: keys[keys.length - 1][1], x: l.x, y: l.y };
+  }
+  get cx() { return this.lerpAt(this.t).x; }
+  get cy() { return this.lerpAt(this.t).y; }
+  stormAt(t: number) { return this.lerpAt(t).r; }
+  /** Center of the circle the storm is heading to next (for the map). */
+  get next() {
+    const keys = this.table;
+    if (this.centersOf !== keys) this.setSeed(this.seed);
+    for (let i = 0; i < keys.length; i++) if (keys[i][0] > this.t && keys[i][1] < this.stormR - 1) return { r: keys[i][1], ...this.centers[i] };
+    return { r: this.stormR, x: this.cx, y: this.cy };
+  }
+  /** The circle has finished closing for good. */
+  get closed() { return this.t >= this.table[this.table.length - 1][0]; }
   get stormR() { return this.stormAt(this.t); }
   /** The circle the storm is heading to next (for the minimap). */
-  get nextR() {
-    for (const [tk, r] of this.g.mode === 'br' ? STORM_BR : STORM_PVE) if (tk > this.t && r < this.stormR - 1) return r;
-    return this.stormR;
-  }
+  get nextR() { return this.next.r; }
   get closing() { return this.stormAt(this.t + 1) < this.stormR - 0.1; }
   /** Seconds until the circle next starts closing (0 while it is), or null when it never will again. */
   get nextClose(): number | null {
     if (this.closing) return 0;
-    const keys = this.g.mode === 'br' ? STORM_BR : STORM_PVE;
+    const keys = this.table;
     for (let i = 1; i < keys.length; i++) if (keys[i - 1][0] > this.t && keys[i][1] < keys[i - 1][1]) return keys[i - 1][0] - this.t;
     return null;
   }
@@ -130,16 +203,29 @@ export class Night {
       this.stormTick -= dt;
       if (this.stormTick <= 0) {
         this.stormTick = 0.5;
-        g.stormHurt(Math.round(3 + this.t / 60));
+        g.stormHurt(Math.round(4 + this.t / 50));
       }
     } else this.stormTick = 0;
 
-    if (g.authority) this.direct();
+    // the circle has closed for good and the final boss still stands: it goes berserk (every machine sees the same
+    // clock, so each one does this to its own copy of the boss)
+    if (!this.enraged && this.closed && g.mode !== 'br') {
+      const boss = g.enemies.find((e): e is Boss => e instanceof Boss && e.final && !e.dead);
+      if (boss) {
+        this.enraged = boss.enraged = true;
+        boss.level += 8;   // ≈ +40% damage
+        g.banner(`${boss.name} IS ENRAGED`, '#ff3355', 2.6);
+        g.flash('#ff3355', 0.3); g.shake(0.8); g.sfx('roar', boss.x);
+        g.fx.ring(boss.x, boss.y, 120, '#ff3355', 0.6, 4);
+      }
+    }
+
+    if (g.authority) this.direct(dt);
     this.updateLoot(dt);
   }
 
   /** Host / solo only: wake camps near players, notice cleared ones, open the gate. */
-  private direct() {
+  private direct(dt: number) {
     const g = this.g;
     const players = [g.player, ...g.remotes.values()].filter((pl) => pl.state !== 'dead');
     for (const camp of this.camps.values()) {
@@ -154,16 +240,54 @@ export class Night {
         }
       }
     }
+    this.roam(players, dt);
     if (!this.bossSpawned && this.t >= BOSS_AT && g.mode !== 'br') {
       this.bossSpawned = true;
       // everyone still out in the dark is pulled to the gate
       for (const e of g.enemies) if (!e.ally && !e.boss) e.dead = true;
       g.enemies = g.enemies.filter((e) => !e.dead);
-      const boss = g.spawn(this.finalBoss, this.cx, this.cy - 60, 12);
+      const boss = g.spawn(this.finalBoss, this.gate.x, this.gate.y - 60, 12);
       g.banner('THE GATE OPENS', '#ff3355', 3);
       g.coop?.push({ t: 'gate' });
       g.gatePull();
       void boss;
+    }
+  }
+
+  /** Small packs wander the open ground between places: every few seconds each hunter with few of them nearby gets
+   *  one more, out of sight, never inside a camp or near a boss. More and tougher as the night goes on. Packs left
+   *  far behind fade away. */
+  private roam(players: { x: number; y: number }[], dt: number) {
+    const g = this.g, w = g.level;
+    this.roamT -= dt;
+    for (const id of this.roamers) {
+      const e = g.enemies.find((x) => x.id === id);
+      if (!e || e.dead) { this.roamers.delete(id); continue; }
+      if (players.every((pl) => Math.hypot(pl.x - e.x, pl.y - e.y) > 1600)) { e.dead = true; this.roamers.delete(id); }
+    }
+    if (this.roamT > 0 || this.bossSpawned || !players.length) return;
+    this.roamT = 3;
+    const cap = Math.min(8, 3 + Math.floor(this.t / 100));
+    for (const pl of players) {
+      let near = 0;
+      for (const id of this.roamers) { const e = g.enemies.find((x) => x.id === id); if (e && Math.hypot(pl.x - e.x, pl.y - e.y) < 900) near++; }
+      if (near >= cap) continue;
+      for (let tries = 0; tries < 12; tries++) {
+        const a = Math.random() * Math.PI * 2, d = 560 + Math.random() * 260;
+        const x = pl.x + Math.cos(a) * d, y = pl.y + Math.sin(a) * d;
+        if (w.solidAt(x, y) || w.roomOf(x, y) || this.outside(x, y)) continue;
+        if (players.some((q) => Math.hypot(q.x - x, q.y - y) < 480)) continue;
+        if ([...this.camps.values()].some((c) => c.room.kind === 'miniboss' && c.state !== 'cleared' && Math.hypot(c.room.cx - x, c.room.cy - y) < 520)) continue;
+        const poi = w.poiAt(x, y)?.name, table = (poi && MOBS_AT[poi]) || MOBS_AT['THE FIELDS'];
+        const level = Math.max(1, w.levelAt(x, y) - 1, 1 + Math.floor(this.t / 90));
+        const n = 1 + Math.floor(Math.random() * (this.t > 240 ? 3 : 2));
+        for (let i = 0; i < n; i++) {
+          const kind = table[Math.floor(Math.random() * Math.min(table.length, 3))];
+          const e = g.spawn(kind, x + (Math.random() - 0.5) * 50, y + (Math.random() - 0.5) * 50, level);
+          this.roamers.add(e.id);
+        }
+        break;
+      }
     }
   }
 
@@ -234,7 +358,7 @@ export class Night {
       chests: this.chests.filter((c) => !c.opened).map(({ id, x, y }) => ({ id, x, y })),
       drops: this.drops.map((d) => ({ x: Math.round(d.x), y: Math.round(d.y), item: d.item })),
       bosses: [...this.camps.values()].filter((c) => c.room.pool).map((c) => [c.room.id, c.boss!] as [number, string]),
-      finalBoss: this.finalBoss,
+      finalBoss: this.finalBoss, seed: this.seed,
     };
   }
 
@@ -245,6 +369,7 @@ export class Night {
     for (const id of s.cleared) { const c = this.camps.get(id); if (c) c.state = 'cleared'; }
     for (const [id, k] of s.bosses ?? []) { const c = this.camps.get(id); if (c) c.boss = k as EnemyKind; }
     if (s.finalBoss) this.finalBoss = s.finalBoss as EnemyKind;
+    if (s.seed !== undefined) this.setSeed(s.seed);
     this.chests = s.chests.map((c) => ({ ...c, opened: false, t: 0 }));
     this.drops = s.drops.map((d) => ({ ...d, z: 0, vz: 0, vx: 0, vy: 0, t: 1 }));
     this.g.nextId = Math.max(this.g.nextId, ...s.chests.map((c) => c.id));

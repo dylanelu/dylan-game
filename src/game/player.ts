@@ -63,7 +63,7 @@ export class Player {
   hook: { x: number; y: number; vx: number; vy: number; phase: 'fly' | 'pull' | 'back'; ax: number; ay: number; target: { x: number; y: number; r: number; dead?: boolean } | null; t: number; dist: number } | null = null;
   /** summed strength of a passive (rarity scales it); 0 when not owned */
   has(key: string) { return this.passives.filter((p) => p.key === key).reduce((a, p) => a + RARITY[p.rarity].mul, 0); }
-  get dmgMul() { return (1 + 0.09 * (this.level - 1)) * RARITY[this.weapon.rarity].mul; }
+  get dmgMul() { return (1 + 0.13 * (this.level - 1)) * RARITY[this.weapon.rarity].mul; }
   get speedMul() { return 1 + 0.12 * this.has('swift'); }
   get perfectWindow() { return PARRY_PERFECT + 0.04 * this.has('deflector'); }
   get critMul() { return 1 + 0.35 * this.has('execution'); }
