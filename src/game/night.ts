@@ -179,6 +179,22 @@ export class Night {
     return { ...s[Math.floor(rand() * s.length)] };
   }
 
+  /** Somewhere to come back to life: open ground well inside both the circle now and the one it's closing to, away
+   *  from enemies. A drop point if one qualifies, else the best of a few random tries, else the next circle's center. */
+  safePoint() {
+    const g = this.g, w = g.level, nx = this.next;
+    const safe = (x: number, y: number, m: number) => Math.hypot(x - nx.x, y - nx.y) < nx.r - m && Math.hypot(x - this.cx, y - this.cy) < this.stormR - m;
+    const quiet = (x: number, y: number) => !g.enemies.some((e) => !e.dead && !e.ally && Math.hypot(e.x - x, e.y - y) < 320);
+    const drops = w.spawns.filter((s) => safe(s.x, s.y, 250) && quiet(s.x, s.y));
+    if (drops.length) return { ...drops[Math.floor(Math.random() * drops.length)] };
+    for (let i = 0; i < 200; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * Math.max(0, nx.r - 160);
+      const x = nx.x + Math.cos(a) * d, y = nx.y + Math.sin(a) * d;
+      if (!w.solidAt(x, y) && !w.roomOf(x, y) && safe(x, y, 120) && (quiet(x, y) || i > 150)) return { x, y };
+    }
+    return { x: nx.x, y: nx.y + 120 };
+  }
+
   update(dt: number) {
     const g = this.g, p = g.player;
     if (this.ended) { this.endT += dt; return; }

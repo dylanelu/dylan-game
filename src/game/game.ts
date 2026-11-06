@@ -1183,10 +1183,11 @@ export class Game {
   }
 
   /** Where to come back: next to a living teammate if there is one, else a safe room. */
+  /** Back beside a living teammate if one is out of the storm, else somewhere safe inside the circle. */
   respawnPoint() {
-    const mate = [...this.remotes.values()].find((r) => r.state !== 'dead' && !r.dissolved);
+    const mate = [...this.remotes.values()].find((r) => r.state !== 'dead' && !r.dissolved && !this.night.outside(r.x, r.y));
     if (mate) return { x: mate.x + 20, y: mate.y };
-    return this.night.dropPoint();
+    return this.night.safePoint();
   }
 
   private respawn() {
